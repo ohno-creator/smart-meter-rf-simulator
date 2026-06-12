@@ -185,7 +185,7 @@ export default function App() {
             <h1 className="shellTitle">スマートメーター 電波とアンテナ シミュレーター</h1>
             <div className="shellSub">アンテナの静特性が「設置できるエリア」を決める——電気・ガス・水道の現場を体感する</div>
           </div>
-          <div className="small" style={{ textAlign: "right" }}>テレメータリング推進協議会<br />技術検討WG 講演連動コンテンツ</div>
+          <div className="small" style={{ textAlign: "right" }}>講演連動コンテンツ</div>
         </header>
 
         <nav className="tabsNav" aria-label="モード切替">

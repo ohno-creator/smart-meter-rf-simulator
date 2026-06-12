@@ -37,7 +37,7 @@ export const STORY_UTILITIES = [
     "icon": "💧",
     "tone": "#0E7C66",
     "overview": "日本の水道メーターの多くは地中の量水器ボックス（ピット）や集合住宅のパイプシャフトに収納され、920MHz帯LPWA（Wi-SUN/U-Bus Air/Sigfox/LoRaWAN）やLTE-M/NB-IoTで検針データを送る。最大の敵は、(1)鋳鉄蓋など金属による遮蔽（20〜40dB）、(2)コンクリート・土・積雪の透過損、(3)ピット内の滞水・アンテナ水没（合計30dB超で致命的）、(4)金属近接によるアンテナの共振ズレと効率低下。送信出力は13〜23dBmと小さく、電池10年駆動が前提のため送信回数も増やせない。アンテナの静特性（効率・VSWR・放射パターン・偏波）と設置方法で生じる数dB〜数十dBの差が、そのまま「スマートメーターを設置できる場所」の差になる。蓋の樹脂化、無線ユニットの蓋直下への分離設置、低損失ケーブルによるアンテナ地上化、マルチホップ中継が主要な対策となる。",
-    "standardsNote": "【920MHz帯 特定小電力無線（ARIB STD-T108）】Wi-SUN（IEEE 802.15.4g、50〜100kbps、受信感度目安-100〜-105dBm）とテレメータリング推進協議会標準のU-Bus Air（最大20mW=13dBm、最大100kbps、マルチホップ中継）が水道・ガス検針の主軸。送信出力は1mW/20mWが基本で、キャリアセンス条件付きで最大250mW(24dBm)も制度上可能。2024年5月にはIoTルート用「Wi-SUN enhanced HAN」が発効し、水道メーターを電力スマートメーター網に相乗りさせる共同検針（例: アズビル金門ENCUW-H8A0水道用無線端末）が制度・規格面で整った。【セルラーLPWA】LTE-M(Cat.M1)/NB-IoTはライセンスバンド（800MHz帯等）、端末送信23dBm、カバレッジ拡張により最大結合損失(MCL)は約156dB/164dBで、ピット内のような深いカバレッジ穴に強い。東京都水道局の先行実装（令和4〜6年度で約13万個、通信成功率98%、令和7〜10年度に約100万個、2030年代全戸化計画）はセルラー系を中心に一体型・分離型の両構成を試行。【アンライセンスLPWA】Sigfox（920MHz、UNB 100bps、基地局受信感度約-140dBm、姫路市家島で2017年に国内初の本稼働）、LoRaWAN（920MHz、13dBm、SF12で受信感度約-137dBm）。従来型の429MHz帯特定小電力テレメータ無線検針も「回り込みに強い」特性から現役。【普及課題】国交省資料や業界調査の通り、水道スマートメーターの普及率はまだ低く、(1)リチウム一次電池での10年駆動、(2)金属蓋付き地中ピット内からの通信、(3)メーター単価・通信費のコストが三大障壁とされる。",
+    "standardsNote": "【920MHz帯 特定小電力無線（ARIB STD-T108）】Wi-SUN（IEEE 802.15.4g、50〜100kbps、受信感度目安-100〜-105dBm）と業界標準のU-Bus Air（最大20mW=13dBm、最大100kbps、マルチホップ中継）が水道・ガス検針の主軸。送信出力は1mW/20mWが基本で、キャリアセンス条件付きで最大250mW(24dBm)も制度上可能。2024年5月にはIoTルート用「Wi-SUN enhanced HAN」が発効し、水道メーターを電力スマートメーター網に相乗りさせる共同検針（例: アズビル金門ENCUW-H8A0水道用無線端末）が制度・規格面で整った。【セルラーLPWA】LTE-M(Cat.M1)/NB-IoTはライセンスバンド（800MHz帯等）、端末送信23dBm、カバレッジ拡張により最大結合損失(MCL)は約156dB/164dBで、ピット内のような深いカバレッジ穴に強い。東京都水道局の先行実装（令和4〜6年度で約13万個、通信成功率98%、令和7〜10年度に約100万個、2030年代全戸化計画）はセルラー系を中心に一体型・分離型の両構成を試行。【アンライセンスLPWA】Sigfox（920MHz、UNB 100bps、基地局受信感度約-140dBm、姫路市家島で2017年に国内初の本稼働）、LoRaWAN（920MHz、13dBm、SF12で受信感度約-137dBm）。従来型の429MHz帯特定小電力テレメータ無線検針も「回り込みに強い」特性から現役。【普及課題】国交省資料や業界調査の通り、水道スマートメーターの普及率はまだ低く、(1)リチウム一次電池での10年駆動、(2)金属蓋付き地中ピット内からの通信、(3)メーター単価・通信費のコストが三大障壁とされる。",
     "defaultSim": {
       "bandKey": "lpwa920",
       "envKey": "suburb",
@@ -1544,7 +1544,7 @@ export const SCENARIO_REFERENCES = {
     "中部電力パワーグリッド「スマートメーターの通信未接続箇所削減に向けた取り組み」 https://www.chuden.co.jp/resource/seicho_kaihatsu/kaihatsu/kai_library/news/news_166_13.pdf",
     "BUSINESS NETWORK「スマートメーターへの採用進むHD-PLC――集合住宅での検針に強み発揮」 https://businessnetwork.jp/article/6469/",
     "スマートグリッドフォーラム「Wi-SUNインタフェースを搭載したスマートメーターの測定技術」 https://sgforum.impress.co.jp/article/306",
-    "スタッフ株式会社 講演資料（テレメータリング推進協議会 技術検討WG 第22回）"
+    "スタッフ株式会社 講演資料"
   ],
   "gas": [
     "ARIB STD-T108（920MHz帯テレメータ用、テレコントロール用及びデータ伝送用無線設備） https://www.arib.or.jp/kikaku/kikaku_tushin/desc/std-t108.html",
@@ -1555,16 +1555,16 @@ export const SCENARIO_REFERENCES = {
     "日経クロステック「電池で10年動くスマートメーターを自社開発したニチガスの創意工夫」 https://xtech.nikkei.com/atcl/nxt/column/18/00001/03667/",
     "経済産業省「ガス集中監視システムについて」（液化石油ガス小委員会資料） https://www.meti.go.jp/shingikai/sankoshin/hoan_shohi/ekika_sekiyu/pdf/008_03_01.pdf",
     "経済産業省「LPガス集中監視システム」 https://www.meti.go.jp/policy/safety_security/industrial_safety/sangyo/lpgas/gas_anzen/basic/operatorsystem/monitoringsystem/index.html",
-    "テレメータリング推進協議会「LPガス集中監視システムのご紹介」 https://teleme-r.or.jp/data/system/",
+    "「LPガス集中監視システムのご紹介」 https://teleme-r.or.jp/data/system/",
     "東洋ガスメーター「集中監視・検針システム LTE-M(Cat.M1)無線通信端末」 https://toyogasmeter.co.jp/product/monitoring/sb-ncu.html",
     "経済産業省「LPガス スマート保安の取り組み」 https://www.meti.go.jp/shingikai/safety_security/smart_hoan/gas_anzen/pdf/001_03_05.pdf",
     "ガス警報器工業会「パイプシャフト内等の密閉された空間に設置するガス警報器について」 https://www.gkk.gr.jp/wp-content/uploads/2024/03/",
-    "スタッフ株式会社 講演資料（テレメータリング推進協議会 技術検討WG 第22回）"
+    "スタッフ株式会社 講演資料"
   ],
   "water": [
     "ARIB STD-T108（920MHz帯テレメータ用、テレメーター用、データ伝送用特定小電力無線局）",
     "総務省 電波利用ポータル 920MHz帯の無線局の利用: https://www.tele.soumu.go.jp/j/adm/system/ml/920mhz/index.htm",
-    "テレメータリング推進協議会 U-Bus/U-Bus Air標準（920MHz・最大20mW・マルチホップ）解説: https://sgforum.impress.co.jp/article/1369",
+    "U-Bus/U-Bus Air標準（920MHz・最大20mW・マルチホップ）解説: https://sgforum.impress.co.jp/article/1369",
     "Wi-SUN enhanced HAN（IoTルート用無線標準規格）発効: https://businessnetwork.jp/article/20963/",
     "東京都水道局 水道スマートメータに係る取組（先行実装約13万個・通信成功率98%・2030年代全戸化）: https://www.waterworks.metro.tokyo.lg.jp/suidojigyo/torikumi/smartmeter_trialproject",
     "国土交通省 水道分野におけるスマートメーターの導入に関する資料: https://www.mlit.go.jp/mizukokudo/watersupply/content/001870355.pdf",
@@ -1583,6 +1583,6 @@ export const SCENARIO_REFERENCES = {
     "Manhole-cover Shaped Antenna Design for Underground Facilities Monitoring System（鋳鉄ボックス利得-15〜-20dBi、スリット化で改善）: https://www.researchgate.net/publication/318385443_Manhole-cover_Shaped_Antenna_Design_for_Underground_Facilities_Monitoring_System",
     "RF Path and Absorption Loss Estimation for Underwater Wireless Sensor Networks: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4934316/",
     "Microwave Ovens Technology Brief（2.45GHzでの水の浸透深さ約10mm）: https://em.eecs.umich.edu/pdf/tb3.pdf",
-    "スタッフ株式会社 講演資料（テレメータリング推進協議会 技術検討WG第22回）: 金属板設置で効率7dB悪化、RC壁15〜25dB、人体接触-6dB、低損失ケーブル1702-013A等の実測値"
+    "スタッフ株式会社 講演資料: 金属板設置で効率7dB悪化、RC壁15〜25dB、人体接触-6dB、低損失ケーブル1702-013A等の実測値"
   ]
 };
