@@ -757,6 +757,18 @@ export default function App() {
   const bMeta = BANDS.find((b) => b.key === bandKey);
   const modelNote = MODEL_NOTES[model] || MODEL_NOTES.FS;
   const actionItems = JUDGE_ACTIONS[judge.level] || JUDGE_ACTIONS.warn;
+  const graphParams = [
+    ["メーター", `${uMeta.label}`],
+    ["方式", bMeta?.label ?? "カスタム"],
+    ["モデル", model === "TWO" ? "2波" : model],
+    ["周波数", `${fmt(freq.v, 0)} MHz`],
+    ["目標距離", fmtDistance(dTest.v)],
+    ["目標余裕", `${fmt(targetMargin.v, 0)} dB`],
+    ["設置", `${place.label}${floodOn ? " / 浸水あり" : ""}`],
+    ["環境", env.label],
+    ["高さ", `Tx ${fmt(ht.v, 1)} m / Rx ${fmt(hr.v, 1)} m`],
+    ["損失", `通常 ${fmt(envLossNominal, 0)} dB / 悲観 ${fmt(envLossWorst, 0)} dB`],
+  ];
 
   const updateRow = (idx, key, val) => setRows((rs) => rs.map((r, i) => (i === idx ? { ...r, [key]: val } : r)));
   const updateRssi = (idx, j, val) => setRows((rs) => rs.map((r, i) => (i === idx ? { ...r, rssi: r.rssi.map((v, k) => (k === j ? val : v)) } : r)));
@@ -828,6 +840,14 @@ export default function App() {
   const viewCard = (
     <div className="card">
       <div className="ct">判定グラフ — 安全域 / 注意域 / 不成立域</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(132px, 1fr))", gap: 6, marginBottom: 10 }}>
+        {graphParams.map(([k, v]) => (
+          <div key={k} style={{ border: `1px solid ${C.line}`, borderRadius: 8, background: "#F6F9FB", padding: "6px 8px", minWidth: 0 }}>
+            <div style={{ fontSize: 10.5, color: C.sub, letterSpacing: ".05em", fontWeight: 700 }}>{k}</div>
+            <div style={{ fontSize: 12, color: C.ink, fontWeight: 800, lineHeight: 1.25, overflowWrap: "anywhere" }}>{v}</div>
+          </div>
+        ))}
+      </div>
       <PropagationScene maxX={graphMaxX} envKey={envKey} placeKey={placeKey} utility={utility} floodOn={floodOn} ht={ht.v} hr={hr.v} dTest={dTest.v} maxD={maxDistanceMain} line={line} target={targetMargin.v} reduced={reduced} />
       <MarginChart line={line} worstLine={worstLine} pts={pts} maxX={graphMaxX} target={targetMargin.v} maxMarker={maxDistanceMain} sens={sens.v} dTest={dTest.v} />
       <div className="legend"><span><span className="sw" style={{ background: C.ink, height: 4 }} />通常予測</span><span><span className="sw" style={{ background: C.ng, height: 3 }} />悲観予測</span><span><span className="sw" style={{ background: marginColor(mJudge, targetMargin.v), height: 4 }} />目標距離</span><span><span className="swd" />実測点</span><span><button className="btn" onMouseEnter={() => setHelpKey("dB")} onClick={syncGraphRange}>表示距離を自動合わせ</button></span></div>
