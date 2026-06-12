@@ -269,6 +269,32 @@ function searchReliableDistance(metricFn, target, dMax = 1e7, steps = 1200) {
   }
   return reliable || dMax;
 }
+function searchFarthestPassingDistance(metricFn, target, dMax = 1e7, steps = 2600, dMin = 1) {
+  const minL = log10(dMin);
+  const maxL = log10(dMax);
+  const refine = (loD, hiD) => {
+    let lo = loD;
+    let hi = hiD;
+    for (let i = 0; i < 28; i++) {
+      const mid = 10 ** ((log10(lo) + log10(hi)) / 2);
+      if (metricFn(mid) >= target) lo = mid;
+      else hi = mid;
+    }
+    return lo;
+  };
+  let prevD = dMin;
+  let prevM = metricFn(prevD);
+  let farthest = prevM >= target ? prevD : 0;
+  for (let i = 1; i <= steps; i++) {
+    const d = 10 ** (minL + ((maxL - minL) * i) / steps);
+    const m = metricFn(d);
+    if (m >= target) farthest = d;
+    else if (prevM >= target) farthest = refine(prevD, d);
+    prevD = d;
+    prevM = m;
+  }
+  return farthest;
+}
 
 /** ===== Axis ===== */
 const AX = { W: 1000, l: 74, r: 22 };
@@ -541,7 +567,7 @@ function buildExplanation(args) {
   if (floodOn) lines.push(`浸水条件では水による吸収とアンテナ整合悪化が重なります。通常+${FLOOD_LOSS.nominal}dB、悲観+${FLOOD_LOSS.max}dB以上の悪化を見込んでいます。`);
   if (autoPolLoss >= 15) lines.push(`偏波不一致による損失が大きい条件です。現在の偏波損失は合計 ${fmt(totalPolLoss, 0)}dBです。端末の向き、受信局アンテナの偏波、取付姿勢の統一が有効です。`);
   if (freq >= 3000) lines.push("3GHz以上では自由空間損失と遮蔽損失の両方が大きくなります。メーター用途の金属・地下・屋内条件では700〜920MHz帯より不利です。");
-  if (model === "TWO") lines.push("2波モデルでは反射波との干渉によりヌルが発生します。このアプリでは目標距離周辺の最小マージンでリンク判定しています。");
+  if (model === "TWO") lines.push("2波モデルでは反射波との干渉によりヌルが発生します。このアプリでは目標距離周辺の最小マージンでリンク判定し、最大到達距離は近距離ヌルで打ち切らず遠方側の最後成立距離として算出しています。");
   const topLosses = lossBreakdown.filter((x) => x.value > 0).slice(0, 3).map((x, i) => `${i + 1}. ${x.label}: ${fmt(x.value, 0)}dB`).join(" / ");
   if (topLosses) lines.push(`主な損失要因は、${topLosses} です。`);
   lines.push(`現在条件での最大到達距離目安は ${fmtDistance(maxDistance)} です。`);
@@ -690,11 +716,11 @@ export default function App() {
 
   const maxDistanceMain = useMemo(() => {
     const fn = model === "TWO" ? (d) => windowStats(d, marginAt).min : marginAt;
-    return searchReliableDistance(fn, targetMargin.v, 1e7, model === "TWO" ? 1400 : 1000);
+    return model === "TWO" ? searchFarthestPassingDistance(fn, targetMargin.v) : searchReliableDistance(fn, targetMargin.v, 1e7, 1000);
   }, [model, windowStats, marginAt, targetMargin.v]);
   const maxDistanceWorst = useMemo(() => {
     const fn = model === "TWO" ? (d) => windowStats(d, marginWorstAt).min : marginWorstAt;
-    return searchReliableDistance(fn, targetMargin.v, 1e7, model === "TWO" ? 1400 : 1000);
+    return model === "TWO" ? searchFarthestPassingDistance(fn, targetMargin.v) : searchReliableDistance(fn, targetMargin.v, 1e7, 1000);
   }, [model, windowStats, marginWorstAt, targetMargin.v]);
 
   const tableData = useMemo(() => rows.map((r) => {
@@ -765,7 +791,7 @@ export default function App() {
     <div className="kpis">
       <div className="kpi" style={{ background: judge.bg, borderColor: judge.color }}><div className="kpik">リンク判定（目標 {fmtDistance(dTest.v)}）</div><div className="badge" style={{ color: judge.color }}><span className="dot" style={{ background: judge.color }} />{judge.label}</div><div className="small" style={{ color: "#33454F" }}>{judge.desc}</div></div>
       <div className="kpi"><div className="kpik">判定用マージン</div><div className="kpiv" style={{ color: judge.color }}>{fmtSigned(mJudge)}<span className="unit">dB</span></div><div className="small">中心点 {fmtSigned(mNominal)} dB / 悲観 {fmtSigned(mWorst)} dB</div></div>
-      <div className="kpi"><div className="kpik">最大到達距離</div><div className="kpiv" style={{ color: C.ok }}>{fmtDistance(maxDistanceMain)}</div><div className="small">悲観: {fmtDistance(maxDistanceWorst)}</div></div>
+      <div className="kpi"><div className="kpik">{model === "TWO" ? "遠方側 最大到達距離" : "最大到達距離"}</div><div className="kpiv" style={{ color: C.ok }}>{fmtDistance(maxDistanceMain)}</div><div className="small">悲観: {fmtDistance(maxDistanceWorst)}{model === "TWO" ? " / ヌルは判定点で確認" : ""}</div></div>
       <div className="kpi"><div className="kpik">EIRP / 受信電力</div><div className="kpiv">{fmt(eirp)}<span className="unit">dBm</span></div><div className="small">Prx {fmt(prxAt(dTest.v))} dBm / 感度 {fmt(sens.v, 0)} dBm</div></div>
       <div className="kpi"><div className="kpik">損失計</div><div className="kpiv">{fmt(envLossNominal)}<span className="unit">dB</span></div><div className="small">悲観 {fmt(envLossWorst)} dB / 偏波 {fmt(totalPolLoss, 0)} dB</div></div>
     </div>
