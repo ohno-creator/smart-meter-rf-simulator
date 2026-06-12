@@ -446,10 +446,10 @@ function PropagationScene({ maxX, envKey, placeKey, utility, floodOn, ht, hr, dT
   );
 }
 
-function MarginChart({ line, pts, maxX, target, maxMarker, worstLine, sens }) {
+function MarginChart({ line, pts, maxX, target, maxMarker, worstLine, sens, dTest }) {
   const W = AX.W;
-  const H = 290;
-  const M = { l: AX.l, r: AX.r, t: 16, b: 46 };
+  const H = 330;
+  const M = { l: AX.l, r: AX.r, t: 28, b: 58 };
   const PW = W - M.l - M.r;
   const PH = H - M.t - M.b;
   const x = (d) => xOf(d, maxX);
@@ -464,6 +464,25 @@ function MarginChart({ line, pts, maxX, target, maxMarker, worstLine, sens }) {
   const polyWorst = worstLine.map((p) => `${x(p.d).toFixed(1)},${y(p.m).toFixed(1)}`).join(" ");
   const xTicks = X_TICKS.filter((v) => v <= maxX);
   const yTicks = Array.from({ length: 5 }, (_, i) => yMin + ((yMax - yMin) * i) / 4);
+  const yClip = (m) => clamp(y(m), M.t, H - M.b);
+  const safeY = M.t;
+  const safeH = Math.max(0, yClip(target) - M.t);
+  const warnY = yClip(target);
+  const warnH = Math.max(0, yClip(0) - yClip(target));
+  const ngY = yClip(0);
+  const ngH = Math.max(0, H - M.b - yClip(0));
+  const targetX = clamp(x(dTest), M.l, W - M.r);
+  const targetPoint = (() => {
+    if (!line.length) return null;
+    let best = line[0], bestErr = Infinity;
+    for (const p of line) {
+      const e = Math.abs(log10(p.d) - log10(dTest));
+      if (e < bestErr) { best = p; bestErr = e; }
+    }
+    return best;
+  })();
+  const targetY = targetPoint ? y(targetPoint.m) : NaN;
+  const markerColor = targetPoint ? marginColor(targetPoint.m, target) : C.sub;
   const [tip, setTip] = useState(null);
   const nearestLinePoint = (dist) => {
     if (!line.length) return null;
@@ -481,18 +500,31 @@ function MarginChart({ line, pts, maxX, target, maxMarker, worstLine, sens }) {
   };
   return (
     <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", display: "block", cursor: "crosshair" }} onPointerMove={onMove} onPointerLeave={() => setTip(null)} aria-label="マージンと距離のグラフ">
+      <defs>
+        <filter id="markerShadow" x="-40%" y="-40%" width="180%" height="180%"><feDropShadow dx="0" dy="2" stdDeviation="2" floodColor="#102330" floodOpacity="0.22" /></filter>
+      </defs>
       <rect x={M.l} y={M.t} width={PW} height={PH} fill="#FFFFFF" stroke={C.line} />
-      {yTicks.map((v, i) => <g key={i}><line x1={M.l} x2={W - M.r} y1={y(v)} y2={y(v)} stroke={C.grid} /><text x={M.l - 8} y={y(v) + 4} textAnchor="end" fontSize="12" fill={C.sub} fontFamily="ui-monospace,monospace">{Math.round(v)}</text></g>)}
-      {xTicks.map((v) => <g key={v}><line x1={x(v)} x2={x(v)} y1={M.t} y2={H - M.b} stroke={C.grid} /><text x={x(v)} y={H - M.b + 18} textAnchor="middle" fontSize="12" fill={C.sub} fontFamily="ui-monospace,monospace">{fmtTick(v)}</text></g>)}
-      {0 >= yMin && 0 <= yMax && <line x1={M.l} x2={W - M.r} y1={y(0)} y2={y(0)} stroke={C.ng} strokeWidth="1" opacity="0.45" />}
-      {Number.isFinite(target) && <><line x1={M.l} x2={W - M.r} y1={y(target)} y2={y(target)} stroke={C.ink} strokeDasharray="8 6" opacity="0.7" /><text x={W - M.r - 6} y={y(target) - 5} textAnchor="end" fontSize="11" fill={C.ink}>目標 {fmt(target, 0)} dB</text></>}
-      {Number.isFinite(maxMarker) && maxMarker > 0 && maxMarker <= maxX && <><line x1={x(maxMarker)} x2={x(maxMarker)} y1={M.t} y2={H - M.b} stroke={C.ok} strokeWidth="1.8" strokeDasharray="8 4" /><text x={x(maxMarker)} y={M.t + 13} textAnchor="middle" fontSize="11.5" fill={C.ok} fontWeight="700">最大 {fmtDistance(maxMarker)}</text></>}
-      <polyline points={polyWorst} fill="none" stroke={C.ng} strokeWidth="1.8" strokeDasharray="6 5" opacity="0.9" />
-      <polyline points={poly} fill="none" stroke={C.ink} strokeWidth="2.2" />
-      {pts.map((p, i) => <rect key={i} x={x(p.d) - 4.5} y={y(p.m) - 4.5} width="9" height="9" fill={C.blue} stroke="#1C3F75" strokeWidth="1" transform={`rotate(45 ${x(p.d)} ${y(p.m)})`} />)}
-      <text x={M.l + PW / 2} y={H - 14} textAnchor="middle" fontSize="13" fill={C.ink}>距離 (m) ※対数目盛</text>
+      <rect x={M.l} y={safeY} width={PW} height={safeH} fill={C.okBg} opacity="0.72" />
+      <rect x={M.l} y={warnY} width={PW} height={warnH} fill={C.warnBg} opacity="0.78" />
+      <rect x={M.l} y={ngY} width={PW} height={ngH} fill={C.ngBg} opacity="0.78" />
+      <text x={M.l + 10} y={M.t + 18} fontSize="12" fill={C.ok} fontWeight="800">安全域</text>
+      {warnH > 18 && <text x={M.l + 10} y={warnY + 17} fontSize="12" fill={C.warn} fontWeight="800">注意域</text>}
+      {ngH > 18 && <text x={M.l + 10} y={ngY + 17} fontSize="12" fill={C.ng} fontWeight="800">不成立域</text>}
+      {yTicks.map((v, i) => <g key={i}><line x1={M.l} x2={W - M.r} y1={y(v)} y2={y(v)} stroke="#CAD7DE" strokeWidth="1" opacity="0.7" /><text x={M.l - 10} y={y(v) + 4} textAnchor="end" fontSize="12" fill={C.sub} fontFamily="ui-monospace,monospace">{Math.round(v)}</text></g>)}
+      {xTicks.map((v) => <g key={v}><line x1={x(v)} x2={x(v)} y1={M.t} y2={H - M.b} stroke="#D8E3E9" opacity="0.8" /><text x={x(v)} y={H - M.b + 20} textAnchor="middle" fontSize="12" fill={C.sub} fontFamily="ui-monospace,monospace">{fmtTick(v)}</text></g>)}
+      {0 >= yMin && 0 <= yMax && <><line x1={M.l} x2={W - M.r} y1={y(0)} y2={y(0)} stroke={C.ng} strokeWidth="1.7" opacity="0.75" /><text x={W - M.r - 8} y={y(0) + 15} textAnchor="end" fontSize="11" fill={C.ng} fontWeight="800">受信限界 0 dB</text></>}
+      {Number.isFinite(target) && <><line x1={M.l} x2={W - M.r} y1={y(target)} y2={y(target)} stroke={C.ink} strokeDasharray="8 6" strokeWidth="1.5" opacity="0.85" /><rect x={W - M.r - 100} y={y(target) - 24} width="92" height="18" rx="9" fill={C.ink} opacity="0.9" /><text x={W - M.r - 54} y={y(target) - 11} textAnchor="middle" fontSize="11" fill="#fff" fontWeight="800">目標 {fmt(target, 0)} dB</text></>}
+      {Number.isFinite(maxMarker) && maxMarker > 0 && maxMarker <= maxX && <><line x1={x(maxMarker)} x2={x(maxMarker)} y1={M.t} y2={H - M.b} stroke={C.ok} strokeWidth="1.8" strokeDasharray="8 4" /><text x={clamp(x(maxMarker), M.l + 52, W - M.r - 52)} y={M.t - 8} textAnchor="middle" fontSize="11.5" fill={C.ok} fontWeight="800">最大 {fmtDistance(maxMarker)}</text></>}
+      <line x1={targetX} x2={targetX} y1={M.t} y2={H - M.b} stroke={markerColor} strokeWidth="2.4" opacity="0.9" />
+      <rect x={clamp(targetX - 56, M.l, W - M.r - 112)} y={H - M.b - 28} width="112" height="22" rx="11" fill={markerColor} filter="url(#markerShadow)" />
+      <text x={clamp(targetX - 56, M.l, W - M.r - 112) + 56} y={H - M.b - 13} textAnchor="middle" fontSize="12" fill="#fff" fontWeight="800">目標 {fmtDistance(dTest)}</text>
+      <polyline points={polyWorst} fill="none" stroke={C.ng} strokeWidth="2.2" strokeDasharray="7 6" opacity="0.9" />
+      <polyline points={poly} fill="none" stroke={C.ink} strokeWidth="3.2" strokeLinejoin="round" strokeLinecap="round" />
+      {Number.isFinite(targetY) && targetY >= M.t && targetY <= H - M.b && <g filter="url(#markerShadow)"><circle cx={targetX} cy={targetY} r="8" fill="#fff" stroke={markerColor} strokeWidth="4" /><text x={clamp(targetX + 16, M.l, W - M.r - 142)} y={clamp(targetY - 12, M.t + 14, H - M.b - 34)} fontSize="12" fill={markerColor} fontWeight="800">判定 {fmtSigned(targetPoint.m)} dB</text></g>}
+      {pts.map((p, i) => <g key={i}><rect x={x(p.d) - 5} y={y(p.m) - 5} width="10" height="10" fill={C.blue} stroke="#fff" strokeWidth="2" transform={`rotate(45 ${x(p.d)} ${y(p.m)})`} /><text x={x(p.d) + 8} y={y(p.m) - 8} fontSize="10" fill={C.blue} fontWeight="800">{p.point}</text></g>)}
+      <text x={M.l + PW / 2} y={H - 18} textAnchor="middle" fontSize="13" fill={C.ink}>距離 (m) ※対数目盛</text>
       <text x="18" y={M.t + PH / 2} textAnchor="middle" fontSize="13" fill={C.ink} transform={`rotate(-90 18 ${M.t + PH / 2})`}>マージン (dB)</text>
-      {tip && <g pointerEvents="none"><line x1={tip.x} x2={tip.x} y1={M.t} y2={H - M.b} stroke={C.ink} opacity="0.12" /><rect x={clamp(tip.x + 12, M.l, W - M.r - 210)} y={clamp(tip.y - 72, M.t, H - M.b - 64)} width={210} height={64} rx={10} fill="#102330" opacity={0.94} /><text x={clamp(tip.x + 12, M.l, W - M.r - 210) + 10} y={clamp(tip.y - 72, M.t, H - M.b - 64) + 22} fontSize="12" fill="#D8E6EE">距離 {fmtDistance(tip.d)}</text><text x={clamp(tip.x + 12, M.l, W - M.r - 210) + 10} y={clamp(tip.y - 72, M.t, H - M.b - 64) + 42} fontSize="12" fill="#D8E6EE">マージン {fmtSigned(tip.m)} dB / Prx {fmt(tip.m + sens)} dBm</text></g>}
+      {tip && <g pointerEvents="none"><line x1={tip.x} x2={tip.x} y1={M.t} y2={H - M.b} stroke={C.ink} opacity="0.18" /><rect x={clamp(tip.x + 12, M.l, W - M.r - 224)} y={clamp(tip.y - 76, M.t, H - M.b - 66)} width={224} height={66} rx={10} fill="#102330" opacity={0.94} /><text x={clamp(tip.x + 12, M.l, W - M.r - 224) + 10} y={clamp(tip.y - 76, M.t, H - M.b - 66) + 22} fontSize="12" fill="#D8E6EE">距離 {fmtDistance(tip.d)}</text><text x={clamp(tip.x + 12, M.l, W - M.r - 224) + 10} y={clamp(tip.y - 76, M.t, H - M.b - 66) + 42} fontSize="12" fill="#D8E6EE">マージン {fmtSigned(tip.m)} dB / Prx {fmt(tip.m + sens)} dBm</text></g>}
     </svg>
   );
 }
@@ -770,11 +802,11 @@ export default function App() {
 
   const viewCard = (
     <div className="card">
-      <div className="ct">伝搬ビュー — 通常カーブ / 悲観カーブ / 実測点</div>
+      <div className="ct">判定グラフ — 安全域 / 注意域 / 不成立域</div>
       <PropagationScene maxX={graphMaxX} envKey={envKey} placeKey={placeKey} utility={utility} floodOn={floodOn} ht={ht.v} hr={hr.v} dTest={dTest.v} maxD={maxDistanceMain} line={line} target={targetMargin.v} reduced={reduced} />
-      <MarginChart line={line} worstLine={worstLine} pts={pts} maxX={graphMaxX} target={targetMargin.v} maxMarker={maxDistanceMain} sens={sens.v} />
-      <div className="legend"><span><span className="sw" style={{ background: C.ink }} />通常カーブ</span><span><span className="sw" style={{ background: C.ng }} />悲観カーブ</span><span><span className="swd" />実測点</span><span><span className="sw" style={{ background: C.ok }} />緑=目標達成</span><span><button className="btn" onMouseEnter={() => setHelpKey("dB")} onClick={syncGraphRange}>表示距離を自動合わせ</button></span></div>
-      <div className="small" style={{ marginTop: 8 }}>グラフ上のホバーで距離・マージン・Prxを表示。2波モデルでは目標距離±{fmt(nullPct.v, 0)}%の最小マージンで判定します。</div>
+      <MarginChart line={line} worstLine={worstLine} pts={pts} maxX={graphMaxX} target={targetMargin.v} maxMarker={maxDistanceMain} sens={sens.v} dTest={dTest.v} />
+      <div className="legend"><span><span className="sw" style={{ background: C.ink, height: 4 }} />通常予測</span><span><span className="sw" style={{ background: C.ng, height: 3 }} />悲観予測</span><span><span className="sw" style={{ background: marginColor(mJudge, targetMargin.v), height: 4 }} />目標距離</span><span><span className="swd" />実測点</span><span><button className="btn" onMouseEnter={() => setHelpKey("dB")} onClick={syncGraphRange}>表示距離を自動合わせ</button></span></div>
+      <div className="small" style={{ marginTop: 8 }}>背景が緑なら目標マージン達成、黄なら受信可能だが余裕不足、赤なら感度割れです。グラフ上のホバーで距離・マージン・Prxを表示します。</div>
     </div>
   );
 
