@@ -93,7 +93,7 @@ const UTILITIES = [
     icon: "🔥",
     tone: "#2B5DA8",
     sub: "U-Bus Air 920MHz 想定",
-    note: "建物脇・パイプシャフト内が多く、遮蔽損失・人体近接・偏波ずれの影響が出やすい設置です。",
+    note: "建物脇・パイプシャフト内が多く、金属扉・配管近接・偏波ずれの影響が出やすい設置です。",
     v: { band: "ubus", txG: -3, rxG: 0, margin: 12, env: "urban", place: "shaft", ht: 1.2, hr: 8, dTest: 200, txPol: "V", rxPol: "V" },
   },
   {
@@ -184,23 +184,32 @@ const MODEL_NOTES = {
 };
 const JUDGE_ACTIONS = {
   ok: ["現地RSSIで机上値との差を確認", "悲観カーブでも0dBを下回らないか確認", "量産前に設置ばらつきを数点で確認"],
-  warn: ["アンテナ位置を高くする", "金属・人体・蓋材から距離を取る", "受信局追加または外部アンテナを検討"],
+  warn: ["アンテナ位置を高くする", "金属・蓋材・配管から距離を取る", "受信局追加または外部アンテナを検討"],
   ng: ["設置場所損失を下げる対策を優先", "通信方式・周波数帯を見直す", "中継局や受信局配置を再設計"],
   bad: ["金属密閉・鉄蓋・浸水条件を前提に対策", "外部アンテナ化または蓋材変更を検討", "机上計算だけでなく現地試験を必須化"],
 };
-const LECTURE_SCENARIOS = [
-  { key: "none", label: "なし", loss: 0, sub: "基準条件" },
-  { key: "body", label: "人体接触", loss: 6, sub: "実験: 約-6dB" },
-  { key: "battery", label: "金属/電池密着", loss: 10, sub: "実験: 約-10dB" },
-  { key: "board", label: "基板で挟む", loss: 14, sub: "実験: 約-14dB" },
-  { key: "wall", label: "RC壁1枚", loss: 20, sub: "目安: 15〜25dB" },
+const SMART_METER_SCENARIOS = [
+  { key: "none", label: "なし", loss: 0, sub: "基準条件", lesson: "まず標準条件で余裕を確認し、現場ばらつきを足した時に何dB残るかを見ます。" },
+  { key: "metal_door", label: "金属扉が閉まる", loss: 18, sub: "盤・PS扉で遮蔽", lesson: "検針時は開いていても運用時は閉まる条件です。アンテナを扉面から逃がす、外部アンテナ化する効果が出やすい場面です。" },
+  { key: "meter_backplate", label: "金属板に密着", loss: 8, sub: "裏板/取付板近接", lesson: "金属板に近いとアンテナ効率や整合が崩れます。数cm離す、樹脂スペーサを入れるだけでマージンが戻ることがあります。" },
+  { key: "pipe_shaft_deep", label: "PS奥まった位置", loss: 15, sub: "都市ガスで多い", lesson: "パイプシャフト奥は回り込み通信になりやすい条件です。受信局位置やアンテナ高の差がRSSIに強く出ます。" },
+  { key: "pipe_parallel", label: "配管に沿わせる", loss: 8, sub: "鋼管・金属近接", lesson: "鋼管やケーブルに沿わせると指向性と偏波が崩れます。配管から離す、向きを揃える理由が見えます。" },
+  { key: "lp_shadow", label: "ボンベの陰", loss: 8, sub: "LP・金属外壁", lesson: "LPボンベや金属外壁の陰では局所的にRSSIが落ちます。少し横へ出すだけでリンクが安定するケースがあります。" },
+  { key: "wet_lid", label: "濡れた蓋/泥水", loss: 12, sub: "水道ピット", lesson: "雨後の濡れた蓋や泥水は920MHz帯でも余裕を削ります。晴天時だけの測定では不足リスクを見落とします。" },
+  { key: "flooded_pit", label: "ピット浸水", loss: 20, sub: "水没・整合悪化", lesson: "水没時は吸収だけでなくアンテナ整合も悪化します。平常時に20dB前後の余裕がないと一気に不成立側へ落ちます。" },
+  { key: "low_mount", label: "低位置設置", loss: 8, sub: "地表/床近接", lesson: "低い位置では地面・床・車両の影響を受けやすく、2波ヌルも出やすくなります。アンテナ高の設計が効く条件です。" },
+  { key: "pol_tilt", label: "取付向きずれ", loss: 15, sub: "偏波・姿勢ずれ", lesson: "筐体の縦横や施工向きが変わると偏波一致が崩れます。アンテナ特性を設置姿勢込みで見る必要があります。" },
+  { key: "rc_slab", label: "RC壁/床追加", loss: 20, sub: "15〜25dB目安", lesson: "RC壁や床を1枚余計に通るだけで10〜20dB級の差になります。机上の見通し距離だけでは読みにくい要因です。" },
+  { key: "cable_10m", label: "外部アンテナ10m", loss: 3, sub: "低損失でも約3dB", lesson: "外部アンテナ化は有効ですが、ケーブル損失も予算化が必要です。利得だけでなく実装後EIRPで判断します。" },
 ];
-const LECTURE_GUIDE = [
-  "見通しを確保する",
-  "金属・ノイズ源から離す",
-  "縦置き/横置きを試しRSSIで比べる",
-  "10〜20dBの余裕を持たせる",
+const SMART_METER_GUIDE = [
+  "金属盤・鉄蓋・配管からアンテナを離す",
+  "水道ピットは浸水と低位置を別リスクとして見る",
+  "取付向き・偏波ずれで余裕が一気に消える",
+  "10〜20dBのリンクマージンを設計段階で確保する",
 ];
+const SMART_METER_SCENARIO_NOTE =
+  "現場で起きる扉の開閉・金属近接・水・取付向きの変化を、現在のリンク条件に重ねます。数dBのアンテナ差や10〜20dBの余裕が、現場ばらつきに効くことを確認できます。";
 
 /** ===== Numeric input hook ===== */
 function useNum(initial, { min = -Infinity, max = Infinity } = {}) {
@@ -573,7 +582,7 @@ function buildExplanation(args) {
   const lines = [];
   lines.push(`目標距離 ${fmtDistance(dTest)} における判定用マージンは ${fmtSigned(mJudge)} dBです。通常条件では ${fmtSigned(mNominal)} dB、悲観条件では ${fmtSigned(mWorst)} dBです。`);
   if (judge.level === "ok") lines.push(`目標マージン ${fmt(targetMargin, 0)} dBを満たしており、現在条件では安定通信が期待できます。ただし、現地RSSIログでの照合は推奨です。`);
-  if (judge.level === "warn") lines.push("受信感度は上回っていますが、目標マージン不足です。雨天・車両・人体近接・端末姿勢・個体差で断続的な通信失敗が起きる可能性があります。");
+  if (judge.level === "warn") lines.push("受信感度は上回っていますが、目標マージン不足です。雨天・金属扉の開閉・浸水・端末姿勢・個体差で断続的な通信失敗が起きる可能性があります。");
   if (judge.level === "ng") lines.push("評価範囲内で受信感度を下回る条件があります。対策なしでの安定通信は難しく、アンテナ位置や設置条件の見直しが必要です。");
   if (judge.level === "bad") lines.push("通信不能リスクが高い条件です。机上計算上のdB加算だけでなく、外部アンテナ化・蓋材変更・中継局追加を前提に検討してください。");
   if (place.outageRisk) lines.push(`${place.label}は遮蔽損失が非常に大きい条件です。10dB程度ではなく、${fmt(place.lossMin, 0)}〜${fmt(place.lossMax, 0)}dB級の損失、または通信不能シナリオを併記するのが安全です。`);
@@ -623,7 +632,7 @@ export default function App() {
   const [envKey, setEnvKey] = useState("urban");
   const [placeKey, setPlaceKey] = useState("wall");
   const [floodOn, setFloodOn] = useState(false);
-  const [lectureScenarioKey, setLectureScenarioKey] = useState("none");
+  const [scenarioKey, setScenarioKey] = useState("none");
   const addLoss = useNum(0, { min: 0 });
   const polExtraLoss = useNum(0, { min: 0 });
   const bodyLoss = useNum(0, { min: 0 });
@@ -673,11 +682,11 @@ export default function App() {
   const totalPolLoss = autoPolLoss + polExtraLoss.v;
   const floodNom = floodOn && isPit ? FLOOD_LOSS.nominal : 0;
   const floodWorst = floodOn && isPit ? FLOOD_LOSS.max : 0;
-  const lectureScenario = LECTURE_SCENARIOS.find((s) => s.key === lectureScenarioKey) || LECTURE_SCENARIOS[0];
-  const lectureLoss = lectureScenario.loss;
+  const fieldScenario = SMART_METER_SCENARIOS.find((s) => s.key === scenarioKey) || SMART_METER_SCENARIOS[0];
+  const fieldScenarioLoss = fieldScenario.loss;
 
-  const envLossNominal = env.loss + place.loss + floodNom + lectureLoss + addLoss.v + totalPolLoss + bodyLoss.v;
-  const envLossWorst = env.lossMax + place.lossMax + floodWorst + lectureLoss + addLoss.v + totalPolLoss + bodyLoss.v;
+  const envLossNominal = env.loss + place.loss + floodNom + fieldScenarioLoss + addLoss.v + totalPolLoss + bodyLoss.v;
+  const envLossWorst = env.lossMax + place.lossMax + floodWorst + fieldScenarioLoss + addLoss.v + totalPolLoss + bodyLoss.v;
   const dbp = (4 * Math.PI * ht.v * hr.v) / lambda;
 
   const basePathLoss = useCallback((d, envLossValue, useWorst = false) => {
@@ -760,13 +769,13 @@ export default function App() {
     { label: "設置遮蔽", value: place.loss },
     { label: "周辺環境", value: env.loss },
     { label: "浸水", value: floodNom },
-    { label: "講演シナリオ", value: lectureLoss },
+    { label: "現場シナリオ", value: fieldScenarioLoss },
     { label: "偏波", value: totalPolLoss },
-    { label: "人体/近接", value: bodyLoss.v },
+    { label: "近接追加", value: bodyLoss.v },
     { label: "現場補正", value: addLoss.v },
     { label: "Tx実装損失", value: txLoss },
     { label: "Rx実装損失", value: rxLoss },
-  ].sort((a, b) => b.value - a.value), [place.loss, env.loss, floodNom, lectureLoss, totalPolLoss, bodyLoss.v, addLoss.v, txLoss, rxLoss]);
+  ].sort((a, b) => b.value - a.value), [place.loss, env.loss, floodNom, fieldScenarioLoss, totalPolLoss, bodyLoss.v, addLoss.v, txLoss, rxLoss]);
 
   const explanation = useMemo(() => buildExplanation({ judge, mJudge, mNominal, mWorst, targetMargin: targetMargin.v, dTest: dTest.v, place, floodOn, autoPolLoss, totalPolLoss, freq: freq.v, model, maxDistance: maxDistanceMain, lossBreakdown, outageRisk }), [judge, mJudge, mNominal, mWorst, targetMargin.v, dTest.v, place, floodOn, autoPolLoss, totalPolLoss, freq.v, model, maxDistanceMain, lossBreakdown, outageRisk]);
 
@@ -781,7 +790,7 @@ export default function App() {
     ["周波数", `${fmt(freq.v, 0)} MHz`],
     ["目標距離", fmtDistance(dTest.v)],
     ["目標余裕", `${fmt(targetMargin.v, 0)} dB`],
-    ["講演条件", lectureScenario.loss ? `${lectureScenario.label} +${lectureScenario.loss} dB` : "なし"],
+    ["現場条件", fieldScenario.loss ? `${fieldScenario.label} +${fieldScenario.loss} dB` : "なし"],
     ["設置", `${place.label}${floodOn ? " / 浸水あり" : ""}`],
     ["環境", env.label],
     ["高さ", `Tx ${fmt(ht.v, 1)} m / Rx ${fmt(hr.v, 1)} m`],
@@ -805,7 +814,7 @@ export default function App() {
   const resultText = [
     `種別: ${uMeta.label}メーター / 方式: ${bMeta?.label ?? "カスタム"} / 設置: ${place.label}${floodOn ? "（浸水あり）" : ""}`,
     `${fmt(freq.v, 0)} MHz / モデル: ${model} / 目標マージン: ${fmt(targetMargin.v, 0)} dB`,
-    `講演シナリオ: ${lectureScenario.label}${lectureLoss ? `（+${lectureLoss} dB）` : ""}`,
+    `現場シナリオ: ${fieldScenario.label}${fieldScenarioLoss ? `（+${fieldScenarioLoss} dB）` : ""}`,
     `EIRP: ${fmt(eirp)} dBm / 通常損失計: ${fmt(envLossNominal)} dB / 悲観損失計: ${fmt(envLossWorst)} dB`,
     `目標距離 ${fmtDistance(dTest.v)}: 通常マージン ${fmtSigned(mNominal)} dB / 判定用 ${fmtSigned(mJudge)} dB / 悲観 ${fmtSigned(mWorst)} dB → ${judge.label}`,
     `最大到達距離: 通常 ${fmtDistance(maxDistanceMain)} / 悲観 ${fmtDistance(maxDistanceWorst)}`,
@@ -854,9 +863,9 @@ export default function App() {
         </div>
       </div>
       <div className="guidePane">
-        <div className="guideTitle">Talk Takeaway</div>
-        <div className="guideMain">講演の要点をその場で試算</div>
-        <ul className="guideList">{LECTURE_GUIDE.map((x) => <li key={x}>{x}</li>)}</ul>
+        <div className="guideTitle">Field Takeaway</div>
+        <div className="guideMain">現場条件でアンテナ余裕を試算</div>
+        <ul className="guideList">{SMART_METER_GUIDE.map((x) => <li key={x}>{x}</li>)}</ul>
       </div>
     </div>
   );
@@ -914,25 +923,29 @@ export default function App() {
               {isPit && <label className="floodChk" onMouseEnter={() => setHelpKey("flood")}><input type="checkbox" checked={floodOn} onChange={(e) => setFloodOn(e.target.checked)} />ピット浸水あり（通常+{FLOOD_LOSS.nominal}dB / 悲観+{FLOOD_LOSS.max}dB）</label>}
               <div className="step"><span className="stepNo">4</span>周辺環境</div>
               <PickGrid options={ENV_OPTIONS} value={envKey} onChange={(k) => { setEnvKey(k); setHelpKey("model"); }} cols={3} />
-              <div className="step"><span className="stepNo">5</span>講演シナリオを重ねる</div>
+              <div className="step"><span className="stepNo">5</span>スマートメーター現場シナリオ</div>
               <div className="chips" style={{ gap: 8 }}>
-                {LECTURE_SCENARIOS.map((s) => (
+                {SMART_METER_SCENARIOS.map((s) => (
                   <button
                     key={s.key}
                     className="chip"
-                    onClick={() => setLectureScenarioKey(s.key)}
+                    onClick={() => setScenarioKey(s.key)}
                     style={{
-                      borderColor: lectureScenarioKey === s.key ? C.ink : C.line,
-                      boxShadow: lectureScenarioKey === s.key ? `inset 0 0 0 1px ${C.ink}` : "none",
-                      background: lectureScenarioKey === s.key ? "#F6F9FB" : "#fff",
-                      fontWeight: lectureScenarioKey === s.key ? 800 : 500,
+                      borderColor: scenarioKey === s.key ? C.ink : C.line,
+                      boxShadow: scenarioKey === s.key ? `inset 0 0 0 1px ${C.ink}` : "none",
+                      background: scenarioKey === s.key ? "#F6F9FB" : "#fff",
+                      fontWeight: scenarioKey === s.key ? 800 : 500,
                     }}
                   >
                     {s.label}<span style={{ color: C.sub, marginLeft: 4 }}>{s.sub}</span>
                   </button>
                 ))}
               </div>
-              <div className="uNote"><b>講演連動:</b> 人体接触・金属密着・基板挟み・RC壁の損失を、現在のリンク条件に重ねて体感できます。</div>
+              <div className="uNote">
+                <b>{fieldScenario.label}: {fieldScenarioLoss ? `+${fieldScenarioLoss}dB損失` : "基準条件"}</b><br />
+                {fieldScenario.lesson}<br />
+                <span style={{ color: C.sub }}>{SMART_METER_SCENARIO_NOTE}</span>
+              </div>
               <div className="step"><span className="stepNo">6</span>受信局までの距離</div>
               <div className="sliderRow"><input className="slider" type="range" min="0" max="1000" value={distToSlider(dTest.v)} onChange={(e) => dTest.setV(sliderToDist(parseInt(e.target.value, 10)))} /><span className="sliderVal">{fmtDistance(dTest.v)}</span></div>
               <div className="chips" style={{ marginTop: 6 }}>{[50, 100, 300, 500, 1000, 3000].map((d) => <button key={d} className="chip" onClick={() => dTest.setV(d)}>{fmtDistance(d)}</button>)}</div>
