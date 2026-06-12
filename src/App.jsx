@@ -1,1126 +1,215 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
+import { C } from "./theme.js";
+import Home from "./components/Home.jsx";
+import CoverageMap from "./components/CoverageMap.jsx";
+import StoryMode from "./components/StoryMode.jsx";
+import PitLab from "./components/PitLab.jsx";
+import ExperimentLab from "./components/ExperimentLab.jsx";
+import ProSimulator from "./components/ProSimulator.jsx";
 
-/** =====================================================================
- *  スマートメーター RFリンクリスク評価ツール v3
- *  改善点:
- *  - 金属ボックス/鉄蓋/浸水の損失を現実寄りのレンジ評価へ変更
- *  - 通常値 / 悲観値 / 2波ヌル対策の判定を分離
- *  - Tx/Rx偏波（垂直・水平・円・不明）を選択可能化
- *  - 損失は正のdB表記、受信電力はdBm表記に整理
- *  - 結果に応じた解説・ボトルネック・推奨対策を自動表示
- *  - リンク判定を「目標距離一点」から「判定用最小マージン」へ修正
- *  ===================================================================== */
-
-/** ===== Utilities ===== */
-const clamp = (x, min, max = Infinity) => Math.max(min, Math.min(max, x));
-const log10 = (x) => Math.log10(clamp(x, 1e-9));
-const round = (x, d = 1) => (Number.isFinite(x) ? Math.round(x * 10 ** d) / 10 ** d : NaN);
-const fmt = (x, d = 1) => (Number.isFinite(x) ? String(round(x, d)) : "—");
-const fmtSigned = (x, d = 1) => (Number.isFinite(x) ? `${x >= 0 ? "+" : ""}${fmt(x, d)}` : "—");
-const fmtLoss = (x, d = 0) => (Number.isFinite(x) ? `${fmt(x, d)} dB損失` : "—");
-const fmtDistance = (m) => {
-  if (!Number.isFinite(m)) return "—";
-  if (m >= 1000) return `${round(m / 1000, 2)} km`;
-  return `${round(m, 0)} m`;
-};
-const fmtTick = (m) => {
-  if (m >= 1000000) return `${round(m / 1000000, 1)}M`;
-  if (m >= 1000) return `${round(m / 1000, m >= 10000 ? 0 : 1)}k`;
-  return `${Math.round(m)}`;
-};
-const median = (arr) => {
-  const xs = arr.filter(Number.isFinite).sort((a, b) => a - b);
-  const n = xs.length;
-  return n ? (n % 2 ? xs[(n - 1) / 2] : (xs[n / 2 - 1] + xs[n / 2]) / 2) : NaN;
-};
-
-/** ===== Design tokens ===== */
-const C = {
-  paper: "#ECF1F4",
-  panel: "#FFFFFF",
-  line: "#D3DDE3",
-  grid: "#E4EDF2",
-  ink: "#14252F",
-  sub: "#5B6E79",
-  blue: "#2B5DA8",
-  ok: "#0E7C66",
-  warn: "#B26B00",
-  ng: "#B3261E",
-  bad: "#6F1D1B",
-  okBg: "#E2F2EE",
-  warnBg: "#F7ECD9",
-  ngBg: "#F8E3E1",
-  badBg: "#F4D8D5",
-};
-
-/** ===== 通信方式・バンド（代表値。実機仕様で要確認） ===== */
-const BANDS = [
-  { key: "wisun", group: "省電力WAN", label: "Wi-SUN（920MHz）", freq: 920, txP: 13, sens: -105 },
-  { key: "ubus", group: "省電力WAN", label: "U-Bus Air（920MHz）", freq: 920, txP: 13, sens: -110 },
-  { key: "lpwa920", group: "省電力WAN", label: "920MHz LPWA（長距離系）", freq: 920, txP: 13, sens: -125 },
-  { key: "telem429", group: "省電力WAN", label: "特定小電力テレメータ（429MHz）", freq: 429, txP: 10, sens: -120 },
-  { key: "ltem", group: "セルラーIoT", label: "LTE-M / Cat-M1（B18 800MHz）", freq: 800, txP: 23, sens: -115 },
-  { key: "nbiot", group: "セルラーIoT", label: "NB-IoT（B8 900MHz）", freq: 900, txP: 23, sens: -129 },
-  { key: "b28", group: "LTE", label: "LTE B28（700MHz プラチナ）", freq: 700, txP: 23, sens: -110 },
-  { key: "b19", group: "LTE", label: "LTE B19（800MHz プラチナ）", freq: 800, txP: 23, sens: -110 },
-  { key: "b8", group: "LTE", label: "LTE B8（900MHz）", freq: 900, txP: 23, sens: -110 },
-  { key: "b21", group: "LTE", label: "LTE B21（1.5GHz）", freq: 1500, txP: 23, sens: -108 },
-  { key: "b3", group: "LTE", label: "LTE B3（1.7/1.8GHz）", freq: 1800, txP: 23, sens: -108 },
-  { key: "b1", group: "LTE", label: "LTE B1（2.1GHz）", freq: 2100, txP: 23, sens: -106 },
-  { key: "b42", group: "LTE", label: "LTE B42（3.5GHz）", freq: 3500, txP: 23, sens: -104 },
-  { key: "n28", group: "5G NR", label: "5G n28（700MHz）", freq: 700, txP: 23, sens: -108 },
-  { key: "n78", group: "5G NR", label: "5G n78（3.4–3.7GHz）", freq: 3500, txP: 23, sens: -98 },
-  { key: "n77", group: "5G NR", label: "5G n77（3.7–4.1GHz）", freq: 3900, txP: 23, sens: -98 },
-  { key: "n79", group: "5G NR", label: "5G n79（4.5GHz）", freq: 4500, txP: 23, sens: -97 },
-  { key: "n257", group: "5G NR", label: "5G n257（28GHz ミリ波）", freq: 28000, txP: 23, sens: -88 },
-];
-const BAND_GROUPS = ["省電力WAN", "セルラーIoT", "LTE", "5G NR"];
-
-/** ===== メーター種別プリセット ===== */
-const UTILITIES = [
-  {
-    key: "elec",
-    label: "電気",
-    icon: "⚡",
-    tone: "#B26B00",
-    sub: "Wi-SUN 920MHz 想定",
-    note: "壁面の電力量計から受信局へ。比較的見通しが取りやすいが、金属盤内では大きく悪化します。",
-    v: { band: "wisun", txG: -2, rxG: 0, margin: 10, env: "urban", place: "wall", ht: 1.8, hr: 5, dTest: 300, txPol: "V", rxPol: "V" },
-  },
-  {
-    key: "citygas",
-    label: "都市ガス",
-    icon: "🔥",
-    tone: "#2B5DA8",
-    sub: "U-Bus Air 920MHz 想定",
-    note: "建物脇・パイプシャフト内が多く、金属扉・配管近接・偏波ずれの影響が出やすい設置です。",
-    v: { band: "ubus", txG: -3, rxG: 0, margin: 12, env: "urban", place: "shaft", ht: 1.2, hr: 8, dTest: 200, txPol: "V", rxPol: "V" },
-  },
-  {
-    key: "lpgas",
-    label: "LPガス",
-    icon: "🛢",
-    tone: "#5B6E79",
-    sub: "920MHz LPWA / LTE-M 想定",
-    note: "郊外・点在配置が多く、長距離リンク成立性がポイント。ボンベ・金属壁近接でアンテナ特性が変動します。",
-    v: { band: "lpwa920", txG: -3, rxG: 2, margin: 12, env: "suburb", place: "wall", ht: 1.2, hr: 10, dTest: 1000, txPol: "V", rxPol: "V" },
-  },
-  {
-    key: "water",
-    label: "水道",
-    icon: "💧",
-    tone: "#0E7C66",
-    sub: "920MHz LPWA 想定",
-    note: "地中の量水器ピット内設置が標準。鉄蓋・浸水・低アンテナ高により、通信不能リスクが高い条件です。",
-    v: { band: "lpwa920", txG: -5, rxG: 2, margin: 15, env: "suburb", place: "pit_metal", ht: 0.3, hr: 10, dTest: 100, txPol: "MIX", rxPol: "V" },
-  },
+const TABS = [
+  { key: "home", icon: "🏠", label: "はじめに" },
+  { key: "map", icon: "🗺", label: "通信エリアマップ" },
+  { key: "story", icon: "📖", label: "課題と解決" },
+  { key: "pit", icon: "🚰", label: "水道ピット研究室" },
+  { key: "lab", icon: "🧪", label: "実験ラボ" },
+  { key: "pro", icon: "📐", label: "プロモード" },
 ];
 
-/** ===== 設置場所損失：通常値 / 最小 / 最大 / 通信不能リスク ===== */
-const PLACES = [
-  { key: "wall", label: "壁面・露出", icon: "🧱", loss: 0, lossMin: 0, lossMax: 3, outageRisk: false, sub: "0〜3 dB損失" },
-  { key: "plastic_box", label: "樹脂ボックス内", icon: "📦", loss: 5, lossMin: 3, lossMax: 10, outageRisk: false, sub: "3〜10 dB損失" },
-  { key: "box", label: "金属ボックス内（隙間あり）", icon: "📦", loss: 30, lossMin: 15, lossMax: 50, outageRisk: true, sub: "15〜50 dB損失" },
-  { key: "metal_sealed", label: "金属ボックス内（密閉）", icon: "🧰", loss: 50, lossMin: 30, lossMax: 80, outageRisk: true, sub: "30〜80 dB損失 / 通信不能あり" },
-  { key: "shaft", label: "パイプシャフト内", icon: "🚪", loss: 20, lossMin: 10, lossMax: 35, outageRisk: false, sub: "10〜35 dB損失" },
-  { key: "pit_resin", label: "地中ピット（樹脂蓋）", icon: "🕳", loss: 20, lossMin: 10, lossMax: 35, outageRisk: false, sub: "10〜35 dB損失" },
-  { key: "pit_metal", label: "地中ピット（鉄蓋）", icon: "⛓", loss: 45, lossMin: 30, lossMax: 70, outageRisk: true, sub: "30〜70 dB損失 / 通信不能あり" },
-];
-const FLOOD_LOSS = { nominal: 20, min: 10, max: 35 };
-
-/** ===== 周辺環境 ===== */
-const ENV_OPTIONS = [
-  { key: "los", label: "見通し", icon: "🏞", loss: 0, lossMin: 0, lossMax: 3, n: 2.0, sigma: 3, sub: "0〜3 dB", buildings: 0, hMin: 0, hMax: 0, walls: 0 },
-  { key: "suburb", label: "郊外", icon: "🏘", loss: 5, lossMin: 3, lossMax: 12, n: 2.5, sigma: 6, sub: "3〜12 dB", buildings: 5, hMin: 16, hMax: 32, walls: 0 },
-  { key: "urban", label: "都市", icon: "🏙", loss: 10, lossMin: 6, lossMax: 22, n: 3.0, sigma: 8, sub: "6〜22 dB", buildings: 10, hMin: 22, hMax: 52, walls: 0 },
-  { key: "dense", label: "高密市街", icon: "🌆", loss: 18, lossMin: 10, lossMax: 32, n: 3.6, sigma: 9, sub: "10〜32 dB", buildings: 16, hMin: 28, hMax: 72, walls: 0 },
-  { key: "indoorL", label: "屋内（壁少）", icon: "🏠", loss: 12, lossMin: 6, lossMax: 22, n: 3.0, sigma: 7, sub: "6〜22 dB", buildings: 0, hMin: 0, hMax: 0, walls: 3 },
-  { key: "indoorH", label: "屋内（壁多）", icon: "🏢", loss: 25, lossMin: 15, lossMax: 45, n: 4.0, sigma: 10, sub: "15〜45 dB", buildings: 0, hMin: 0, hMax: 0, walls: 6 },
-];
-
-/** ===== 偏波 ===== */
-const POL_OPTIONS = [
-  { key: "V", label: "垂直偏波" },
-  { key: "H", label: "水平偏波" },
-  { key: "C", label: "円偏波" },
-  { key: "MIX", label: "不明・混在" },
-];
-function calcPolLoss(txPol, rxPol) {
-  if (txPol === "MIX" || rxPol === "MIX") return 6;
-  if (txPol === rxPol) return 0;
-  if ((txPol === "V" && rxPol === "H") || (txPol === "H" && rxPol === "V")) return 20;
-  if (txPol === "C" || rxPol === "C") return 3;
-  return 6;
-}
-
-const HELP = {
-  model:
-    "FS: 自由空間損失＋環境/設置/偏波/追加損失。\nCI: 1m自由空間損失＋パスロス指数n。都市・屋内NLOSの傾向表現に向きます。\n2波: 地表反射によるヌルを簡易表現。判定は目標距離周辺の最小マージンで行います。",
-  place:
-    "損失は正のdBで入力・表示します。例: 30dB損失 = 受信電力が30dB低下。\n金属ボックス・鉄蓋は10dBでは甘く、30〜70dB級または通信不能も見込むべき条件です。",
-  pol:
-    "Tx/Rx偏波を選ぶと自動で偏波損失を加算します。垂直×水平の直交では反射・散乱で完全には消えない前提で20dB損失に丸めています。",
-  flood: "ピット浸水は通常+20dB、悲観+35dBとして扱います。水没時はアンテナ整合悪化も重なり、通信不能シナリオとして併記します。",
-  margin: "マージン = 受信電力Prx − 受信感度。プラスなら受信感度を上回ります。目標マージンはフェージング・干渉・個体差の余裕です。",
-  dB: "dBmは絶対電力、dBiはアンテナ利得、dBは比率です。損失・減衰量は通常プラスdBで表記し、受信電力側はdBmがマイナス方向へ下がります。",
-  log: "現地RSSIログから、予測と実測の差分を推定現場損失として算出します。中央値を見ることで外れ値の影響を抑えます。",
-};
-const MODEL_NOTES = {
-  FS: {
-    name: "FS: Free Space / 自由空間ベース",
-    text: "空中をまっすぐ伝わる基本損失に、設置場所・周辺環境・偏波などの損失を足すモデルです。見通しがある屋外や、まず概算したい時に向きます。",
-    bestFor: "まず概算・見通し屋外",
-  },
-  CI: {
-    name: "CI: Close-In / 距離減衰ベース",
-    text: "1m地点の自由空間損失を基準に、環境ごとのパスロス指数nで距離減衰を表します。都市部・屋内・遮蔽物が多いNLOS条件の傾向確認に向きます。",
-    bestFor: "都市・屋内・遮蔽物あり",
-  },
-  TWO: {
-    name: "2波: 直接波 + 地表反射",
-    text: "直接波と地面からの反射波が重なって強め合い・弱め合いを起こす前提です。特定距離で急に悪化するヌルを見たい時に使います。",
-    bestFor: "低アンテナ・反射ヌル確認",
-  },
-};
-const JUDGE_ACTIONS = {
-  ok: ["現地RSSIで机上値との差を確認", "悲観カーブでも0dBを下回らないか確認", "量産前に設置ばらつきを数点で確認"],
-  warn: ["アンテナ位置を高くする", "金属・蓋材・配管から距離を取る", "受信局追加または外部アンテナを検討"],
-  ng: ["設置場所損失を下げる対策を優先", "通信方式・周波数帯を見直す", "中継局や受信局配置を再設計"],
-  bad: ["金属密閉・鉄蓋・浸水条件を前提に対策", "外部アンテナ化または蓋材変更を検討", "机上計算だけでなく現地試験を必須化"],
-};
-const ANTENNA_CONFIGS = [
-  {
-    key: "baseline",
-    label: "現行代表値",
-    icon: "□",
-    sub: "まず基準比較",
-    gainDelta: 0,
-    implLoss: 0,
-    lesson: "メーター種別プリセットのアンテナ条件をそのまま使います。標準品で足りるか、追加対策が必要かを見る基準です。",
-  },
-  {
-    key: "small_builtin",
-    label: "小型内蔵",
-    icon: "▣",
-    sub: "省スペース優先",
-    gainDelta: -2,
-    implLoss: 2,
-    lesson: "小型筐体やGND近接で効率が落ちやすい構成です。量産サイズ制約が厳しい時のワースト寄り確認に使います。",
-  },
-  {
-    key: "tuned_builtin",
-    label: "内蔵最適化",
-    icon: "◧",
-    sub: "配置/GND調整",
-    gainDelta: 2,
-    implLoss: 0.5,
-    lesson: "アンテナ位置、GNDクリアランス、給電部、筐体材質を合わせて調整する想定です。内蔵のまま数dBを回収したい時に有効です。",
-  },
-  {
-    key: "flex_offset",
-    label: "フレキ貼付",
-    icon: "▱",
-    sub: "金属から逃がす",
-    gainDelta: 2.5,
-    implLoss: 1,
-    lesson: "筐体内で金属板や配管からアンテナを逃がす構成です。内蔵扱いを維持しつつ、設置自由度でマージンを稼ぎます。",
-  },
-  {
-    key: "external_whip",
-    label: "外部ホイップ",
-    icon: "│",
-    sub: "金属外へ出す",
-    gainDelta: 5,
-    implLoss: 1.5,
-    lesson: "金属盤・PS・鉄蓋の外へ放射点を出す想定です。ケーブル損失は増えますが、遮蔽条件では実効改善が大きく出ます。",
-  },
-  {
-    key: "waterproof_external",
-    label: "防水外部",
-    icon: "●",
-    sub: "屋外/ピット向け",
-    gainDelta: 5.5,
-    implLoss: 2,
-    lesson: "屋外・水道ピット・LP容器周辺など、水や金属の影響を避けたい条件向けです。防水構造とケーブル損失をセットで見ます。",
-  },
-];
-const SMART_METER_SCENARIOS = [
-  { key: "none", label: "なし", loss: 0, sub: "基準条件", lesson: "まず標準条件で余裕を確認し、現場ばらつきを足した時に何dB残るかを見ます。" },
-  { key: "metal_door", label: "金属扉が閉まる", loss: 18, sub: "盤・PS扉で遮蔽", lesson: "検針時は開いていても運用時は閉まる条件です。アンテナを扉面から逃がす、外部アンテナ化する効果が出やすい場面です。" },
-  { key: "meter_backplate", label: "金属板に密着", loss: 8, sub: "裏板/取付板近接", lesson: "金属板に近いとアンテナ効率や整合が崩れます。数cm離す、樹脂スペーサを入れるだけでマージンが戻ることがあります。" },
-  { key: "pipe_shaft_deep", label: "PS奥まった位置", loss: 15, sub: "都市ガスで多い", lesson: "パイプシャフト奥は回り込み通信になりやすい条件です。受信局位置やアンテナ高の差がRSSIに強く出ます。" },
-  { key: "pipe_parallel", label: "配管に沿わせる", loss: 8, sub: "鋼管・金属近接", lesson: "鋼管やケーブルに沿わせると指向性と偏波が崩れます。配管から離す、向きを揃える理由が見えます。" },
-  { key: "lp_shadow", label: "ボンベの陰", loss: 8, sub: "LP・金属外壁", lesson: "LPボンベや金属外壁の陰では局所的にRSSIが落ちます。少し横へ出すだけでリンクが安定するケースがあります。" },
-  { key: "wet_lid", label: "濡れた蓋/泥水", loss: 12, sub: "水道ピット", lesson: "雨後の濡れた蓋や泥水は920MHz帯でも余裕を削ります。晴天時だけの測定では不足リスクを見落とします。" },
-  { key: "flooded_pit", label: "ピット浸水", loss: 20, sub: "水没・整合悪化", lesson: "水没時は吸収だけでなくアンテナ整合も悪化します。平常時に20dB前後の余裕がないと一気に不成立側へ落ちます。" },
-  { key: "low_mount", label: "低位置設置", loss: 8, sub: "地表/床近接", lesson: "低い位置では地面・床・車両の影響を受けやすく、2波ヌルも出やすくなります。アンテナ高の設計が効く条件です。" },
-  { key: "pol_tilt", label: "取付向きずれ", loss: 15, sub: "偏波・姿勢ずれ", lesson: "筐体の縦横や施工向きが変わると偏波一致が崩れます。アンテナ特性を設置姿勢込みで見る必要があります。" },
-  { key: "rc_slab", label: "RC壁/床追加", loss: 20, sub: "15〜25dB目安", lesson: "RC壁や床を1枚余計に通るだけで10〜20dB級の差になります。机上の見通し距離だけでは読みにくい要因です。" },
-  { key: "cable_10m", label: "外部アンテナ10m", loss: 3, sub: "低損失でも約3dB", lesson: "外部アンテナ化は有効ですが、ケーブル損失も予算化が必要です。利得だけでなく実装後EIRPで判断します。" },
-];
-const SMART_METER_GUIDE = [
-  "金属盤・鉄蓋・配管からアンテナを離す",
-  "水道ピットは浸水と低位置を別リスクとして見る",
-  "取付向き・偏波ずれで余裕が一気に消える",
-  "10〜20dBのリンクマージンを設計段階で確保する",
-];
-const STAF_DESIGN_GUIDE = [
-  "標準品で足りるか、筐体込み調整が必要かをdBで切り分ける",
-  "内蔵・外部・防水・多周波の選択を現場条件から決める",
-  "GND近接、金属、ケーブル、アイソレーションを早い段階で潰す",
-];
-const SMART_METER_SCENARIO_NOTE =
-  "現場で起きる扉の開閉・金属近接・水・取付向きの変化を、現在のリンク条件に重ねます。数dBのアンテナ差や10〜20dBの余裕が、現場ばらつきに効くことを確認できます。";
-
-/** ===== Numeric input hook ===== */
-function useNum(initial, { min = -Infinity, max = Infinity } = {}) {
-  const [v, setV] = useState(initial);
-  const [t, setT] = useState(String(initial));
-  useEffect(() => setT(String(v)), [v]);
-  const commit = useCallback(
-    (raw) => {
-      let x = parseFloat(raw);
-      if (!Number.isFinite(x)) x = v;
-      x = clamp(x, min, max);
-      setV(x);
-      setT(String(x));
-    },
-    [v, min, max]
-  );
-  return {
-    v,
-    setV,
-    bind: {
-      value: t,
-      onChange: (e) => setT(e.target.value),
-      onBlur: () => commit(t),
-      onKeyDown: (e) => e.key === "Enter" && commit(t),
-      inputMode: "text",
-    },
-  };
-}
-
-/** ===== CSV ===== */
-function detectDelim(text) {
-  const line = (text || "").split(/\r?\n/).find((l) => l.trim());
-  if (!line) return ",";
-  return line.includes("\t") ? "\t" : ",";
-}
-function parseLog(text) {
-  const src = (text || "").trim();
-  if (!src) return [];
-  const delim = detectDelim(src);
-  const lines = src.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  let start = /point|距離|distance|rssi/i.test(lines[0] || "") ? 1 : 0;
-  const out = [];
-  for (let i = start; i < lines.length; i++) {
-    const cells = lines[i].split(delim).map((s) => s.trim());
-    if (cells.length < 2) continue;
-    let point = cells[0] || `P${out.length + 1}`;
-    let d = parseFloat(cells[1]);
-    let off = 2;
-    if (!Number.isFinite(d)) {
-      const d2 = parseFloat(cells[0]);
-      if (!Number.isFinite(d2)) continue;
-      point = `P${out.length + 1}`;
-      d = d2;
-      off = 1;
-    }
-    const rssi = Array.from({ length: 5 }, (_, k) => {
-      const n = parseFloat(cells[off + k]);
-      return Number.isFinite(n) ? clamp(Math.round(n), -200, 0) : NaN;
-    });
-    out.push({ point, d: clamp(d, 1, 1e9), rssi });
-  }
-  return out;
-}
-function toCSV(tableData) {
-  const head = ["Point", "Distance_m", "RSSI1", "RSSI2", "RSSI3", "RSSI4", "RSSI5", "Median_dBm", "Pred_dBm", "EstLoss_dB"].join(",");
-  const lines = tableData.map((r) => [r.point, r.d, ...r.rssi.map((x) => (Number.isFinite(x) ? x : "")), Number.isFinite(r.median) ? round(r.median, 1) : "", Number.isFinite(r.pred) ? round(r.pred, 1) : "", Number.isFinite(r.estAdd) ? round(r.estAdd, 1) : ""].join(","));
-  return [head, ...lines].join("\n");
-}
-
-/** ===== Max distance search ===== */
-function searchReliableDistance(metricFn, target, dMax = 1e7, steps = 1200) {
-  let reliable = 0;
-  const maxL = log10(dMax);
-  for (let i = 0; i <= steps; i++) {
-    const d = 10 ** ((maxL * i) / steps);
-    const m = metricFn(d);
-    if (m >= target) reliable = d;
-    else return reliable;
-  }
-  return reliable || dMax;
-}
-function searchFarthestPassingDistance(metricFn, target, dMax = 1e7, steps = 2600, dMin = 1) {
-  const minL = log10(dMin);
-  const maxL = log10(dMax);
-  const refine = (loD, hiD) => {
-    let lo = loD;
-    let hi = hiD;
-    for (let i = 0; i < 28; i++) {
-      const mid = 10 ** ((log10(lo) + log10(hi)) / 2);
-      if (metricFn(mid) >= target) lo = mid;
-      else hi = mid;
-    }
-    return lo;
-  };
-  let prevD = dMin;
-  let prevM = metricFn(prevD);
-  let farthest = prevM >= target ? prevD : 0;
-  for (let i = 1; i <= steps; i++) {
-    const d = 10 ** (minL + ((maxL - minL) * i) / steps);
-    const m = metricFn(d);
-    if (m >= target) farthest = d;
-    else if (prevM >= target) farthest = refine(prevD, d);
-    prevD = d;
-    prevM = m;
-  }
-  return farthest;
-}
-
-/** ===== Axis ===== */
-const AX = { W: 1000, l: 74, r: 22 };
-const plotW = AX.W - AX.l - AX.r;
-const xOf = (d, maxX) => AX.l + (log10(d) / log10(maxX)) * plotW;
-const X_TICKS = [10, 30, 100, 300, 1000, 3000, 10000, 30000, 100000, 300000, 1000000];
-const marginColor = (m, target) => (m >= target ? C.ok : m >= 0 ? C.warn : C.ng);
-const SLIDER_MIN_L = 1;
-const SLIDER_MAX_L = 5;
-const sliderToDist = (t) => Math.round(10 ** (SLIDER_MIN_L + (t / 1000) * (SLIDER_MAX_L - SLIDER_MIN_L)));
-const distToSlider = (d) => clamp(Math.round(((log10(d) - SLIDER_MIN_L) / (SLIDER_MAX_L - SLIDER_MIN_L)) * 1000), 0, 1000);
-
-function HLabel({ text, helpKey, setHelp }) {
-  return (
-    <span className="lab" onMouseEnter={() => setHelp(helpKey)} onFocus={() => setHelp(helpKey)} onClick={() => setHelp(helpKey)} tabIndex={0} role="button" aria-label={text}>
-      {text}
-    </span>
-  );
-}
-function NumField({ label, helpKey, setHelp, bind, note }) {
-  return (
-    <label className="field">
-      <div>
-        <HLabel text={label} helpKey={helpKey} setHelp={setHelp} />
-        {note ? <div className="small">{note}</div> : null}
-      </div>
-      <input className="in" type="number" step="any" {...bind} />
-    </label>
-  );
-}
-function PickGrid({ options, value, onChange, cols = 4, big = false }) {
-  return (
-    <div className="pick" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0,1fr))` }}>
-      {options.map((o) => (
-        <button key={o.key} className={`pk ${big ? "pkBig" : ""} ${value === o.key ? "on" : ""}`} onClick={() => onChange(o.key)} aria-pressed={value === o.key}>
-          <span className="pkIcon">{o.icon}</span>
-          <span className="pkLabel">{o.label}</span>
-          <span className="pkSub">{o.sub}</span>
-        </button>
-      ))}
-    </div>
-  );
-}
-function RssiCell({ value, onCommit }) {
-  const [t, setT] = useState(Number.isFinite(value) ? String(value) : "");
-  useEffect(() => setT(Number.isFinite(value) ? String(value) : ""), [value]);
-  const commit = () => {
-    const n = parseInt(t, 10);
-    onCommit(Number.isFinite(n) ? clamp(n, -200, 0) : NaN);
-  };
-  return <input type="number" step="1" className="tin tinR" value={t} onChange={(e) => /^-?\d*$/.test(e.target.value) && setT(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === "Enter" && commit()} />;
-}
-function Modal({ title, text, setText, onClose, onApply, applyLabel }) {
-  return (
-    <div className="modalBg" role="dialog" aria-modal="true">
-      <div className="modal">
-        <h3>{title}</h3>
-        <textarea value={text} onChange={(e) => setText(e.target.value)} onFocus={(e) => e.target.select()} />
-        <div className="acts">
-          {onApply ? <button className="btn btnP" onClick={onApply}>{applyLabel || "適用"}</button> : null}
-          <button className="btn" onClick={onClose}>閉じる</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/** ===== Drawing ===== */
-function MeterGraphic({ utility, txX, txY, groundY, antX, antY, reduced, floodOn, metalLid }) {
-  const lidColor = metalLid ? "#4A5860" : "#6B5B45";
-  return (
-    <g>
-      {utility === "elec" && (
-        <>
-          <rect x={txX - 26} y={txY - 34} width={20} height={groundY - (txY - 34)} fill="#DCE6EC" stroke="#9FB4C2" />
-          <rect x={txX - 14} y={txY - 18} width={28} height={38} rx="4" fill="#FBFDFE" stroke={C.ink} strokeWidth="1.4" />
-          <rect x={txX - 9} y={txY - 12} width={18} height={9} rx="1.5" fill="#0F2E2A" />
-          <text x={txX} y={txY - 5} textAnchor="middle" fontSize="6.5" fill="#7BE3C5" fontFamily="ui-monospace,monospace">888.8</text>
-          <circle cx={txX - 5} cy={txY + 7} r="2.4" fill={C.ok} />
-        </>
-      )}
-      {utility === "citygas" && (
-        <>
-          <rect x={txX - 26} y={txY - 30} width={16} height={groundY - (txY - 30)} fill="#DCE6EC" stroke="#9FB4C2" />
-          <rect x={txX - 12} y={txY - 14} width={30} height={27} rx="5" fill="#E9EEF2" stroke={C.ink} strokeWidth="1.4" />
-          <rect x={txX - 7} y={txY - 9} width={20} height={8} rx="1.5" fill="#1A2B36" />
-          <text x={txX + 3} y={txY - 2.5} textAnchor="middle" fontSize="6" fill="#9FD8FF" fontFamily="ui-monospace,monospace">0123</text>
-          <line x1={txX - 5} y1={txY + 13} x2={txX - 5} y2={groundY} stroke="#8A9BA8" strokeWidth="3.4" />
-        </>
-      )}
-      {utility === "lpgas" && (
-        <>
-          <rect x={txX - 34} y={groundY - 44} width={18} height={44} rx="8" fill="#D8E2E9" stroke="#8A9BA8" strokeWidth="1.4" />
-          <rect x={txX - 28} y={groundY - 50} width={6} height={7} fill="#8A9BA8" />
-          <text x={txX - 25} y={groundY - 22} textAnchor="middle" fontSize="7" fill={C.sub} fontWeight="700">LP</text>
-          <rect x={txX - 8} y={txY - 13} width={28} height={25} rx="5" fill="#E9EEF2" stroke={C.ink} strokeWidth="1.4" />
-          <rect x={txX - 3} y={txY - 8} width={17} height={7} rx="1.5" fill="#1A2B36" />
-        </>
-      )}
-      {utility === "water" && (
-        <>
-          <rect x={txX - 22} y={groundY} width={50} height={22} fill="#C7B9A4" stroke="#8F7F66" strokeWidth="1.2" />
-          <rect x={txX - 18} y={groundY + 3} width={42} height={16} fill="#EFE7D8" stroke="#8F7F66" />
-          {floodOn && <rect x={txX - 18} y={groundY + 7} width={42} height={12} fill="#7FB8D8" opacity="0.85" />}
-          <circle cx={txX + 2} cy={groundY + 11} r="5.8" fill="#FBFDFE" stroke={C.ink} strokeWidth="1.2" />
-          <line x1={txX - 22} y1={groundY} x2={txX + 28} y2={groundY} stroke={lidColor} strokeWidth="2.4" />
-          <line x1={txX + 8} y1={groundY} x2={txX + 32} y2={groundY - 10} stroke={lidColor} strokeWidth={metalLid ? 4 : 3} />
-        </>
-      )}
-      <line x1={txX + (utility === "water" ? 2 : 12)} y1={utility === "water" ? groundY + 6 : txY - 6} x2={antX} y2={antY} stroke={C.ink} strokeWidth="1.6" />
-      <circle cx={antX} cy={antY} r="2" fill={C.ink} />
-      {[0, 1, 2].map((k) => (
-        <circle key={k} cx={antX} cy={antY} r="6" fill="none" stroke={C.blue} strokeWidth="1.4" opacity="0">
-          {!reduced && (
-            <>
-              <animate attributeName="r" values="4;78" dur="2.8s" begin={`${k * 0.93}s`} repeatCount="indefinite" />
-              <animate attributeName="opacity" values="0.75;0" dur="2.8s" begin={`${k * 0.93}s`} repeatCount="indefinite" />
-            </>
-          )}
-        </circle>
-      ))}
-    </g>
-  );
-}
-
-function PropagationScene({ maxX, envKey, placeKey, utility, floodOn, ht, hr, dTest, maxD, line, target, reduced }) {
-  const H = 210;
-  const top = 12;
-  const groundY = H - 44;
-  const env = ENV_OPTIONS.find((o) => o.key === envKey) || ENV_OPTIONS[0];
-  const uMeta = UTILITIES.find((u) => u.key === utility) || UTILITIES[0];
-  const place = PLACES.find((p) => p.key === placeKey) || PLACES[0];
-  const hMaxM = Math.max(12, ht * 1.3, hr * 1.3);
-  const hPx = (m) => (clamp(m, 0, hMaxM) / hMaxM) * (groundY - top - 26);
-  const txX = xOf(1.6, maxX);
-  const txY = groundY - Math.max(hPx(ht), utility === "water" ? 0 : 10);
-  const antX = txX + (utility === "water" ? 2 : 20);
-  const antY = utility === "water" ? groundY - hPx(Math.max(ht, 0.2)) - 4 : txY - 16;
-  const rxX = clamp(xOf(dTest, maxX), AX.l + 80, AX.W - AX.r - 8);
-  const rxY = groundY - hPx(hr);
-  const buildings = useMemo(() => Array.from({ length: env.buildings }, (_, i) => {
-    const f = 0.18 + ((i * 0.6180339887) % 1) * 0.7;
-    return { x: AX.l + f * plotW, w: 12 + ((i * 7) % 16), h: env.hMin + ((i * 13) % Math.max(1, env.hMax - env.hMin)), win: i % 3 };
-  }).sort((a, b) => a.x - b.x), [env]);
-  const walls = useMemo(() => Array.from({ length: env.walls }, (_, i) => AX.l + (0.2 + (i + 1) * (0.62 / (env.walls + 1))) * plotW), [env]);
-  const heat = useMemo(() => line.slice(0, -1).map((p, i) => ({ x: xOf(p.d, maxX), w: Math.max(0.8, xOf(line[i + 1].d, maxX) - xOf(p.d, maxX)), c: marginColor(p.m, target) })), [line, maxX, target]);
-  const maxMX = Number.isFinite(maxD) && maxD > 1 ? xOf(maxD, maxX) : NaN;
-  return (
-    <svg viewBox={`0 0 ${AX.W} ${H}`} style={{ width: "100%", display: "block" }} aria-label="伝搬断面図">
-      <defs>
-        <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#F6FAFC" /><stop offset="1" stopColor="#E2EDF4" /></linearGradient>
-        <pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#CFDCE5" /><line x1="0" y1="0" x2="0" y2="6" stroke="#9FB4C2" strokeWidth="1.4" /></pattern>
-      </defs>
-      <rect x={AX.l} y={top} width={plotW} height={groundY - top} fill="url(#sky)" stroke={C.line} />
-      {buildings.map((b, i) => <g key={i} opacity="0.9"><rect x={b.x} y={groundY - b.h} width={b.w} height={b.h} fill="#C6D4DD" stroke="#9FB4C2" strokeWidth="1" /><rect x={b.x + 3} y={groundY - b.h + 6} width={Math.max(4, b.w - 6)} height="5" fill="#EAF1F5" /></g>)}
-      {walls.map((wx, i) => <rect key={i} x={wx} y={top + 8} width={9} height={groundY - top - 8} fill="url(#hatch)" stroke="#9FB4C2" />)}
-      <line x1={antX} y1={antY} x2={rxX} y2={rxY} stroke={C.blue} strokeWidth="1.2" strokeDasharray="2 5" opacity="0.7" />
-      <line x1={AX.l} x2={AX.W - AX.r} y1={groundY} y2={groundY} stroke={C.ink} strokeWidth="1.6" />
-      <MeterGraphic utility={utility} txX={txX} txY={txY} groundY={groundY} antX={antX} antY={antY} reduced={reduced} floodOn={floodOn} metalLid={placeKey === "pit_metal"} />
-      <text x={txX - 2} y={groundY + (utility === "water" ? 34 : 17)} textAnchor="middle" fontSize="11" fill={C.ink} fontWeight="700">{uMeta.icon} {uMeta.label}メーター</text>
-      <text x={txX - 2} y={groundY + (utility === "water" ? 46 : 30)} textAnchor="middle" fontSize="10" fill={C.sub}>{place.label}</text>
-      <g>
-        <line x1={rxX} y1={groundY} x2={rxX} y2={rxY} stroke="#6B5B45" strokeWidth="4" />
-        <line x1={rxX - 12} y1={rxY + 2} x2={rxX + 12} y2={rxY + 2} stroke={C.ink} strokeWidth="2" />
-        <line x1={rxX} y1={rxY + 2} x2={rxX} y2={rxY - 12} stroke={C.ink} strokeWidth="2" />
-        <circle cx={rxX} cy={rxY - 13} r="2.4" fill={C.ink} />
-        <text x={rxX} y={groundY + 16} textAnchor="middle" fontSize="11" fill={C.ink} fontWeight="700">受信局</text>
-        <text x={rxX} y={groundY + 29} textAnchor="middle" fontSize="10" fill={C.sub}>目標 {fmtDistance(dTest)}</text>
-      </g>
-      {Number.isFinite(maxMX) && maxMX <= AX.W - AX.r && maxMX >= AX.l && (
-        <g><line x1={maxMX} y1={top + 4} x2={maxMX} y2={groundY} stroke={C.ok} strokeWidth="1.6" strokeDasharray="6 4" /><rect x={clamp(maxMX - 58, AX.l, AX.W - AX.r - 116)} y={top + 4} width={116} height={18} rx="9" fill={C.ok} /><text x={clamp(maxMX - 58, AX.l, AX.W - AX.r - 116) + 58} y={top + 17} textAnchor="middle" fontSize="11" fill="#fff" fontWeight="700">最大 {fmtDistance(maxD)}</text></g>
-      )}
-      {heat.map((s, i) => <rect key={i} x={s.x} y={groundY + 2} width={s.w} height={6} fill={s.c} opacity="0.85" />)}
-    </svg>
-  );
-}
-
-function MarginChart({ line, pts, maxX, target, maxMarker, worstLine, sens, dTest }) {
-  const W = AX.W;
-  const H = 330;
-  const M = { l: AX.l, r: AX.r, t: 28, b: 58 };
-  const PW = W - M.l - M.r;
-  const PH = H - M.t - M.b;
-  const x = (d) => xOf(d, maxX);
-  const all = [target, ...line.map((p) => p.m), ...worstLine.map((p) => p.m), ...pts.map((p) => p.m)].filter(Number.isFinite);
-  let yMin = all.length ? Math.min(...all) : -20;
-  let yMax = all.length ? Math.max(...all) : 50;
-  if (yMax - yMin < 10) { const mid = (yMax + yMin) / 2; yMin = mid - 10; yMax = mid + 10; }
-  const pad = Math.max(5, (yMax - yMin) * 0.12);
-  yMin -= pad; yMax += pad;
-  const y = (m) => M.t + ((yMax - m) / (yMax - yMin)) * PH;
-  const poly = line.map((p) => `${x(p.d).toFixed(1)},${y(p.m).toFixed(1)}`).join(" ");
-  const polyWorst = worstLine.map((p) => `${x(p.d).toFixed(1)},${y(p.m).toFixed(1)}`).join(" ");
-  const xTicks = X_TICKS.filter((v) => v <= maxX);
-  const yTicks = Array.from({ length: 5 }, (_, i) => yMin + ((yMax - yMin) * i) / 4);
-  const yClip = (m) => clamp(y(m), M.t, H - M.b);
-  const safeY = M.t;
-  const safeH = Math.max(0, yClip(target) - M.t);
-  const warnY = yClip(target);
-  const warnH = Math.max(0, yClip(0) - yClip(target));
-  const ngY = yClip(0);
-  const ngH = Math.max(0, H - M.b - yClip(0));
-  const targetX = clamp(x(dTest), M.l, W - M.r);
-  const targetPoint = (() => {
-    if (!line.length) return null;
-    let best = line[0], bestErr = Infinity;
-    for (const p of line) {
-      const e = Math.abs(log10(p.d) - log10(dTest));
-      if (e < bestErr) { best = p; bestErr = e; }
-    }
-    return best;
-  })();
-  const targetY = targetPoint ? y(targetPoint.m) : NaN;
-  const markerColor = targetPoint ? marginColor(targetPoint.m, target) : C.sub;
-  const [tip, setTip] = useState(null);
-  const nearestLinePoint = (dist) => {
-    if (!line.length) return null;
-    let best = line[0], bestErr = Infinity;
-    for (const p of line) { const e = Math.abs(log10(p.d) - log10(dist)); if (e < bestErr) { best = p; bestErr = e; } }
-    return best;
-  };
-  const onMove = (e) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const px = ((e.clientX - rect.left) / rect.width) * W;
-    if (px < M.l || px > W - M.r) return setTip(null);
-    const dist = 10 ** (clamp((px - M.l) / PW, 0, 1) * log10(maxX));
-    const p = nearestLinePoint(dist);
-    setTip(p ? { ...p, x: x(p.d), y: y(p.m) } : null);
-  };
-  return (
-    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", display: "block", cursor: "crosshair" }} onPointerMove={onMove} onPointerLeave={() => setTip(null)} aria-label="マージンと距離のグラフ">
-      <defs>
-        <filter id="markerShadow" x="-40%" y="-40%" width="180%" height="180%"><feDropShadow dx="0" dy="2" stdDeviation="2" floodColor="#102330" floodOpacity="0.22" /></filter>
-      </defs>
-      <rect x={M.l} y={M.t} width={PW} height={PH} fill="#FFFFFF" stroke={C.line} />
-      <rect x={M.l} y={safeY} width={PW} height={safeH} fill={C.okBg} opacity="0.72" />
-      <rect x={M.l} y={warnY} width={PW} height={warnH} fill={C.warnBg} opacity="0.78" />
-      <rect x={M.l} y={ngY} width={PW} height={ngH} fill={C.ngBg} opacity="0.78" />
-      <text x={M.l + 10} y={M.t + 18} fontSize="12" fill={C.ok} fontWeight="800">安全域</text>
-      {warnH > 18 && <text x={M.l + 10} y={warnY + 17} fontSize="12" fill={C.warn} fontWeight="800">注意域</text>}
-      {ngH > 18 && <text x={M.l + 10} y={ngY + 17} fontSize="12" fill={C.ng} fontWeight="800">不成立域</text>}
-      {yTicks.map((v, i) => <g key={i}><line x1={M.l} x2={W - M.r} y1={y(v)} y2={y(v)} stroke="#CAD7DE" strokeWidth="1" opacity="0.7" /><text x={M.l - 10} y={y(v) + 4} textAnchor="end" fontSize="12" fill={C.sub} fontFamily="ui-monospace,monospace">{Math.round(v)}</text></g>)}
-      {xTicks.map((v) => <g key={v}><line x1={x(v)} x2={x(v)} y1={M.t} y2={H - M.b} stroke="#D8E3E9" opacity="0.8" /><text x={x(v)} y={H - M.b + 20} textAnchor="middle" fontSize="12" fill={C.sub} fontFamily="ui-monospace,monospace">{fmtTick(v)}</text></g>)}
-      {0 >= yMin && 0 <= yMax && <><line x1={M.l} x2={W - M.r} y1={y(0)} y2={y(0)} stroke={C.ng} strokeWidth="1.7" opacity="0.75" /><text x={W - M.r - 8} y={y(0) + 15} textAnchor="end" fontSize="11" fill={C.ng} fontWeight="800">受信限界 0 dB</text></>}
-      {Number.isFinite(target) && <><line x1={M.l} x2={W - M.r} y1={y(target)} y2={y(target)} stroke={C.ink} strokeDasharray="8 6" strokeWidth="1.5" opacity="0.85" /><rect x={W - M.r - 100} y={y(target) - 24} width="92" height="18" rx="9" fill={C.ink} opacity="0.9" /><text x={W - M.r - 54} y={y(target) - 11} textAnchor="middle" fontSize="11" fill="#fff" fontWeight="800">目標 {fmt(target, 0)} dB</text></>}
-      {Number.isFinite(maxMarker) && maxMarker > 0 && maxMarker <= maxX && <><line x1={x(maxMarker)} x2={x(maxMarker)} y1={M.t} y2={H - M.b} stroke={C.ok} strokeWidth="1.8" strokeDasharray="8 4" /><text x={clamp(x(maxMarker), M.l + 52, W - M.r - 52)} y={M.t - 8} textAnchor="middle" fontSize="11.5" fill={C.ok} fontWeight="800">最大 {fmtDistance(maxMarker)}</text></>}
-      <line x1={targetX} x2={targetX} y1={M.t} y2={H - M.b} stroke={markerColor} strokeWidth="2.4" opacity="0.9" />
-      <rect x={clamp(targetX - 56, M.l, W - M.r - 112)} y={H - M.b - 28} width="112" height="22" rx="11" fill={markerColor} filter="url(#markerShadow)" />
-      <text x={clamp(targetX - 56, M.l, W - M.r - 112) + 56} y={H - M.b - 13} textAnchor="middle" fontSize="12" fill="#fff" fontWeight="800">目標 {fmtDistance(dTest)}</text>
-      <polyline points={polyWorst} fill="none" stroke={C.ng} strokeWidth="2.2" strokeDasharray="7 6" opacity="0.9" />
-      <polyline points={poly} fill="none" stroke={C.ink} strokeWidth="3.2" strokeLinejoin="round" strokeLinecap="round" />
-      {Number.isFinite(targetY) && targetY >= M.t && targetY <= H - M.b && <g filter="url(#markerShadow)"><circle cx={targetX} cy={targetY} r="8" fill="#fff" stroke={markerColor} strokeWidth="4" /><text x={clamp(targetX + 16, M.l, W - M.r - 142)} y={clamp(targetY - 12, M.t + 14, H - M.b - 34)} fontSize="12" fill={markerColor} fontWeight="800">判定 {fmtSigned(targetPoint.m)} dB</text></g>}
-      {pts.map((p, i) => <g key={i}><rect x={x(p.d) - 5} y={y(p.m) - 5} width="10" height="10" fill={C.blue} stroke="#fff" strokeWidth="2" transform={`rotate(45 ${x(p.d)} ${y(p.m)})`} /><text x={x(p.d) + 8} y={y(p.m) - 8} fontSize="10" fill={C.blue} fontWeight="800">{p.point}</text></g>)}
-      <text x={M.l + PW / 2} y={H - 18} textAnchor="middle" fontSize="13" fill={C.ink}>距離 (m) ※対数目盛</text>
-      <text x="18" y={M.t + PH / 2} textAnchor="middle" fontSize="13" fill={C.ink} transform={`rotate(-90 18 ${M.t + PH / 2})`}>マージン (dB)</text>
-      {tip && <g pointerEvents="none"><line x1={tip.x} x2={tip.x} y1={M.t} y2={H - M.b} stroke={C.ink} opacity="0.18" /><rect x={clamp(tip.x + 12, M.l, W - M.r - 224)} y={clamp(tip.y - 76, M.t, H - M.b - 66)} width={224} height={66} rx={10} fill="#102330" opacity={0.94} /><text x={clamp(tip.x + 12, M.l, W - M.r - 224) + 10} y={clamp(tip.y - 76, M.t, H - M.b - 66) + 22} fontSize="12" fill="#D8E6EE">距離 {fmtDistance(tip.d)}</text><text x={clamp(tip.x + 12, M.l, W - M.r - 224) + 10} y={clamp(tip.y - 76, M.t, H - M.b - 66) + 42} fontSize="12" fill="#D8E6EE">マージン {fmtSigned(tip.m)} dB / Prx {fmt(tip.m + sens)} dBm</text></g>}
-    </svg>
-  );
-}
-
-function buildExplanation(args) {
-  const { judge, mJudge, mNominal, mWorst, targetMargin, dTest, place, floodOn, autoPolLoss, totalPolLoss, freq, model, maxDistance, lossBreakdown, outageRisk } = args;
-  const lines = [];
-  lines.push(`目標距離 ${fmtDistance(dTest)} における判定用マージンは ${fmtSigned(mJudge)} dBです。通常条件では ${fmtSigned(mNominal)} dB、悲観条件では ${fmtSigned(mWorst)} dBです。`);
-  if (judge.level === "ok") lines.push(`目標マージン ${fmt(targetMargin, 0)} dBを満たしており、現在条件では安定通信が期待できます。ただし、現地RSSIログでの照合は推奨です。`);
-  if (judge.level === "warn") lines.push("受信感度は上回っていますが、目標マージン不足です。雨天・金属扉の開閉・浸水・端末姿勢・個体差で断続的な通信失敗が起きる可能性があります。");
-  if (judge.level === "ng") lines.push("評価範囲内で受信感度を下回る条件があります。対策なしでの安定通信は難しく、アンテナ位置や設置条件の見直しが必要です。");
-  if (judge.level === "bad") lines.push("通信不能リスクが高い条件です。机上計算上のdB加算だけでなく、外部アンテナ化・蓋材変更・中継局追加を前提に検討してください。");
-  if (place.outageRisk) lines.push(`${place.label}は遮蔽損失が非常に大きい条件です。10dB程度ではなく、${fmt(place.lossMin, 0)}〜${fmt(place.lossMax, 0)}dB級の損失、または通信不能シナリオを併記するのが安全です。`);
-  if (floodOn) lines.push(`浸水条件では水による吸収とアンテナ整合悪化が重なります。通常+${FLOOD_LOSS.nominal}dB、悲観+${FLOOD_LOSS.max}dB以上の悪化を見込んでいます。`);
-  if (autoPolLoss >= 15) lines.push(`偏波不一致による損失が大きい条件です。現在の偏波損失は合計 ${fmt(totalPolLoss, 0)}dBです。端末の向き、受信局アンテナの偏波、取付姿勢の統一が有効です。`);
-  if (freq >= 3000) lines.push("3GHz以上では自由空間損失と遮蔽損失の両方が大きくなります。メーター用途の金属・地下・屋内条件では700〜920MHz帯より不利です。");
-  if (model === "TWO") lines.push("2波モデルでは反射波との干渉によりヌルが発生します。このアプリでは目標距離周辺の最小マージンでリンク判定し、最大到達距離は近距離ヌルで打ち切らず遠方側の最後成立距離として算出しています。");
-  const topLosses = lossBreakdown.filter((x) => x.value > 0).slice(0, 3).map((x, i) => `${i + 1}. ${x.label}: ${fmt(x.value, 0)}dB`).join(" / ");
-  if (topLosses) lines.push(`主な損失要因は、${topLosses} です。`);
-  lines.push(`現在条件での最大到達距離目安は ${fmtDistance(maxDistance)} です。`);
-  return lines.join("\n");
-}
-
-/** =====================================================================
- *  App
- *  ===================================================================== */
 export default function App() {
+  const [tab, setTab] = useState("home");
+  const go = (k) => { setTab(k); window.scrollTo({ top: 0, behavior: "smooth" }); };
+
   const css = useMemo(() => `
-    .app{--ink:${C.ink};--sub:${C.sub};--line:${C.line};font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Yu Gothic UI","Noto Sans JP",system-ui,sans-serif;background:repeating-linear-gradient(0deg,transparent 0 31px,rgba(43,93,168,.05) 31px 32px),repeating-linear-gradient(90deg,transparent 0 31px,rgba(43,93,168,.05) 31px 32px),${C.paper};color:var(--ink);min-height:100vh}.wrap{max-width:1320px;margin:0 auto;padding:16px 16px 40px}.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.head{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;border-bottom:2px solid var(--ink);padding-bottom:12px;margin-bottom:14px}.eyebrow{font-size:11px;letter-spacing:.22em;color:${C.blue};font-weight:700}.title{font-size:23px;font-weight:800;margin:2px 0 0;letter-spacing:.02em}.sub{font-size:12px;color:var(--sub);margin-top:3px}.btn{border:1px solid var(--line);background:#fff;border-radius:9px;padding:7px 12px;font-size:12px;cursor:pointer;color:var(--ink)}.btn:hover{border-color:${C.blue}}.btnP{background:var(--ink);color:#fff;border-color:var(--ink)}.seg{display:flex;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:#fff}.seg button{border:0;background:transparent;padding:7px 14px;font-size:12.5px;cursor:pointer;color:var(--ink)}.seg button.on{background:var(--ink);color:#fff;font-weight:700}.modelBox{margin:-2px 0 12px;background:#F6F9FB;border:1px solid var(--line);border-left:4px solid ${C.blue};border-radius:0 10px 10px 0;padding:9px 12px}.modelName{font-size:12px;font-weight:800;color:${C.blue};margin-bottom:3px}.modelText{font-size:12px;line-height:1.55;color:#33454F}.guide{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin:0 0 12px}.guidePane{background:#fff;border:1px solid var(--line);border-radius:11px;padding:11px 12px}.guideTitle{font-size:11px;font-weight:800;letter-spacing:.12em;color:${C.blue};text-transform:uppercase;margin-bottom:7px}.guideMain{font-size:13px;font-weight:800;color:var(--ink);line-height:1.35}.guideList{margin:7px 0 0;padding-left:17px;font-size:12px;line-height:1.55;color:#33454F}.guideList li{margin:2px 0}.modelChoices{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}.modelChoice{border:1px solid var(--line);border-radius:8px;padding:7px;background:#F6F9FB}.modelChoice.on{border-color:${C.blue};box-shadow:inset 0 0 0 1px ${C.blue};background:#EEF5FB}.modelChoice b{display:block;font-size:12px;color:var(--ink);margin-bottom:2px}.modelChoice span{display:block;font-size:10.5px;line-height:1.35;color:var(--sub)}.readout{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}.readCell{border-left:3px solid var(--line);padding:2px 0 2px 8px}.readCell b{display:block;font-size:12px;color:var(--ink)}.readCell span{display:block;font-size:10.5px;line-height:1.35;color:var(--sub)}.grid{display:grid;grid-template-columns:1fr;gap:14px;margin-top:14px}@media(min-width:1020px){.grid{grid-template-columns:430px 1fr}}.card{background:${C.panel};border:1px solid var(--line);border-radius:13px;padding:14px;box-shadow:0 1px 2px rgba(16,35,48,.05)}.ct{font-size:12px;font-weight:800;letter-spacing:.14em;color:${C.blue};margin-bottom:10px;text-transform:uppercase}.step{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:800;margin:14px 0 8px}.step:first-of-type{margin-top:0}.stepNo{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:999px;background:var(--ink);color:#fff;font-size:12px;font-weight:800}.grp{font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.1em;border-top:1px dashed var(--line);padding-top:10px;margin:12px 0 8px}.grp:first-of-type{border-top:0;margin-top:0;padding-top:0}.fields{display:grid;grid-template-columns:1fr 1fr;gap:7px 12px}.field{display:flex;align-items:center;justify-content:space-between;gap:10px}.lab{font-size:12.5px;color:#33454F;cursor:help;outline:none;border-bottom:1px dotted #B9C7CF}.in{border:1px solid var(--line);border-radius:8px;padding:6px 8px;font-size:13px;background:#fff;width:108px;text-align:right;font-family:ui-monospace,"SF Mono",Consolas,monospace}.sel{width:210px;text-align:left;font-family:inherit}.small{font-size:11px;color:var(--sub);margin-top:2px;line-height:1.35}.pick{display:grid;gap:8px}.pk{display:flex;flex-direction:column;align-items:center;gap:2px;border:1.5px solid var(--line);background:#fff;border-radius:11px;padding:9px 6px;cursor:pointer;color:var(--ink)}.pk:hover{border-color:${C.blue}}.pk.on{border-color:var(--ink);box-shadow:inset 0 0 0 1.5px var(--ink);background:#F6F9FB}.pkIcon{font-size:20px;line-height:1}.pkBig .pkIcon{font-size:26px}.pkLabel{font-size:12px;font-weight:800;text-align:center;line-height:1.2}.pkSub{font-size:10.5px;color:var(--sub);text-align:center;line-height:1.2}.bandSel{width:100%;border:1px solid var(--line);border-radius:9px;padding:8px 10px;font-size:13px;background:#fff;color:var(--ink);font-family:inherit;box-sizing:border-box}.floodChk{display:flex;align-items:center;gap:8px;font-size:12px;color:#33454F;background:#F2F6F9;border:1px dashed var(--line);border-radius:9px;padding:8px 11px;margin-top:8px;cursor:pointer}.sliderRow{display:flex;align-items:center;gap:12px}.slider{flex:1;accent-color:${C.ink};height:26px}.sliderVal{font-family:ui-monospace,"SF Mono",Consolas,monospace;font-size:16px;font-weight:800;min-width:88px;text-align:right}.chips{display:flex;gap:6px;flex-wrap:wrap}.chip{border:1px solid var(--line);background:#fff;border-radius:999px;padding:4px 11px;font-size:11.5px;cursor:pointer;color:var(--ink)}.kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}@media(max-width:980px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}.kpi{background:#F6F9FB;border:1px solid var(--line);border-radius:11px;padding:11px 12px}.kpik{font-size:11px;color:var(--sub);letter-spacing:.06em}.kpiv{font-size:20px;font-weight:800;margin-top:3px;font-family:ui-monospace,"SF Mono",Consolas,monospace;letter-spacing:-.01em}.unit{font-size:12px;font-weight:600;color:var(--sub);margin-left:3px}.badge{display:inline-flex;align-items:center;gap:7px;border-radius:999px;padding:5px 12px;font-size:14px;font-weight:800;margin-top:2px}.dot{width:9px;height:9px;border-radius:999px}.legend{display:flex;gap:16px;flex-wrap:wrap;font-size:11.5px;color:var(--sub);margin-top:8px;align-items:center}.legend span{display:inline-flex;align-items:center;gap:6px}.sw{display:inline-block;width:16px;height:3px;border-radius:2px}.swd{display:inline-block;width:9px;height:9px;transform:rotate(45deg);background:${C.blue}}.note{margin-top:10px;font-size:12px;background:#F2F6F9;border:1px solid var(--line);border-radius:10px;padding:9px 11px;line-height:1.5}.uNote{font-size:12px;line-height:1.55;background:#F6F9FB;border-left:3px solid var(--ink);padding:8px 11px;border-radius:0 9px 9px 0;margin-top:8px}.help{font-size:12px;line-height:1.58;color:#33454F;background:#F6F9FB;border:1px dashed var(--line);border-radius:10px;padding:10px 12px;min-height:84px;white-space:pre-wrap}.tableWrap{overflow-x:auto}table{border-collapse:collapse;width:100%;min-width:960px;font-size:12px;font-family:ui-monospace,"SF Mono",Consolas,monospace}th,td{padding:7px 8px;border-bottom:1px solid ${C.grid};white-space:nowrap;text-align:center}thead th{background:#F2F6F9;border-bottom:1.5px solid var(--line);font-family:inherit;font-size:11.5px;color:#33454F}.tin{border:1px solid var(--line);border-radius:7px;padding:4px 6px;font-size:12px;background:#fff;font-family:inherit}.tinP{width:88px}.tinD{width:92px;text-align:right}.tinR{width:70px;text-align:right}.toast{position:fixed;right:14px;bottom:14px;background:#102330;color:#D8E6EE;border-radius:12px;padding:10px 14px;font-size:12px;max-width:380px;z-index:50;box-shadow:0 6px 20px rgba(16,35,48,.3)}.modalBg{position:fixed;inset:0;background:rgba(16,35,48,.5);z-index:60;display:flex;align-items:center;justify-content:center;padding:14px}.modal{width:min(900px,100%);background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px}.modal h3{margin:0 0 10px;font-size:14px}.modal textarea{width:100%;height:230px;border:1px solid var(--line);border-radius:11px;padding:10px;font-size:12px;font-family:ui-monospace,Consolas,monospace;box-sizing:border-box}.acts{display:flex;justify-content:flex-end;gap:8px;margin-top:10px}pre{white-space:pre-wrap;margin:0;font-size:12px;line-height:1.5;font-family:ui-monospace,"SF Mono",Consolas,monospace}.footer{margin-top:18px;font-size:11px;color:var(--sub);border-top:1px solid var(--line);padding-top:10px;line-height:1.6}@media(max-width:700px){.pick{grid-template-columns:repeat(2,minmax(0,1fr)) !important}.modelChoices,.readout{grid-template-columns:1fr}}
+    .shellRoot{--ink:${C.ink};--sub:${C.sub};--line:${C.line};font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Yu Gothic UI","Noto Sans JP",system-ui,sans-serif;background:repeating-linear-gradient(0deg,transparent 0 31px,rgba(43,93,168,.05) 31px 32px),repeating-linear-gradient(90deg,transparent 0 31px,rgba(43,93,168,.05) 31px 32px),${C.paper};color:${C.ink};min-height:100vh}
+    .shellWrap{max-width:1320px;margin:0 auto;padding:14px 16px 44px}
+    .shellHead{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;border-bottom:2px solid ${C.ink};padding-bottom:10px}
+    .shellEyebrow{font-size:11px;letter-spacing:.22em;color:${C.blue};font-weight:700}
+    .shellTitle{font-size:22px;font-weight:800;margin:2px 0 0;letter-spacing:.02em}
+    .shellSub{font-size:12px;color:${C.sub};margin-top:3px}
+    .tabsNav{display:flex;gap:6px;overflow-x:auto;padding:10px 0 12px;-webkit-overflow-scrolling:touch}
+    .tabBtn{flex:0 0 auto;display:flex;align-items:center;gap:7px;border:1.5px solid ${C.line};background:#fff;border-radius:999px;padding:8px 15px;font-size:13px;font-weight:700;color:${C.ink};cursor:pointer;white-space:nowrap}
+    .tabBtn:hover{border-color:${C.blue}}
+    .tabBtnOn{background:${C.ink};color:#fff;border-color:${C.ink}}
+    .shellFooter{margin-top:22px;font-size:11px;color:${C.sub};border-top:1px solid ${C.line};padding-top:10px;line-height:1.7}
+
+    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    .btn{border:1px solid ${C.line};background:#fff;border-radius:9px;padding:7px 12px;font-size:12px;cursor:pointer;color:${C.ink}}
+    .btn:hover{border-color:${C.blue}}
+    .btnP{background:${C.ink};color:#fff;border-color:${C.ink}}
+    .card{background:#fff;border:1px solid ${C.line};border-radius:13px;padding:14px;box-shadow:0 1px 2px rgba(16,35,48,.05);margin-bottom:14px}
+    .ct{font-size:12px;font-weight:800;letter-spacing:.14em;color:${C.blue};margin-bottom:10px;text-transform:uppercase}
+    .step{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:800;margin:14px 0 8px}
+    .step:first-of-type{margin-top:0}
+    .stepNo{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:999px;background:${C.ink};color:#fff;font-size:12px;font-weight:800;flex:0 0 auto}
+    .small{font-size:11.5px;color:${C.sub};margin-top:3px;line-height:1.5}
+    .para{font-size:13px;line-height:1.75;margin:6px 0;color:#22343F}
+    .pick{display:grid;gap:8px}
+    .pk{display:flex;flex-direction:column;align-items:center;gap:2px;border:1.5px solid ${C.line};background:#fff;border-radius:11px;padding:9px 6px;cursor:pointer;color:${C.ink}}
+    .pk:hover{border-color:${C.blue}}
+    .pk.on{border-color:${C.ink};box-shadow:inset 0 0 0 1.5px ${C.ink};background:#F6F9FB}
+    .pkIcon{font-size:20px;line-height:1}
+    .pkBig .pkIcon{font-size:26px}
+    .pkLabel{font-size:12px;font-weight:800;text-align:center;line-height:1.25}
+    .pkSub{font-size:10.5px;color:${C.sub};text-align:center;line-height:1.2}
+    .bandSel{width:100%;border:1px solid ${C.line};border-radius:9px;padding:8px 10px;font-size:13px;background:#fff;color:${C.ink};font-family:inherit;box-sizing:border-box;margin-bottom:4px}
+    .sliderRow{display:flex;align-items:center;gap:12px;margin:6px 0}
+    .slider{flex:1;accent-color:${C.ink};height:26px}
+    .chips,.segRow{display:flex;gap:6px;flex-wrap:wrap}
+    .chip{border:1px solid ${C.line};background:#fff;border-radius:999px;padding:5px 12px;font-size:11.5px;cursor:pointer;color:${C.ink}}
+    .chip:hover{border-color:${C.blue}}
+    .chipOn{background:${C.ink};color:#fff;border-color:${C.ink};font-weight:700}
+    .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+    .kpi{background:#F6F9FB;border:1px solid ${C.line};border-radius:11px;padding:11px 12px}
+    .kpik{font-size:11px;color:${C.sub};letter-spacing:.06em}
+    .kpiv{font-size:20px;font-weight:800;margin-top:3px;font-family:ui-monospace,"SF Mono",Consolas,monospace;letter-spacing:-.01em}
+    .unit{font-size:12px;font-weight:600;color:${C.sub};margin-left:3px}
+    .badge{display:inline-flex;align-items:center;gap:7px;border-radius:999px;padding:5px 12px;font-size:13.5px;font-weight:800}
+    .dot{width:9px;height:9px;border-radius:999px}
+    .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:${C.sub};align-items:center}
+    .legend .sw,.lossBarLegend .sw{display:inline-block;width:14px;height:4px;border-radius:2px;margin-right:5px;vertical-align:middle}
+    .swBox{display:inline-block;width:11px;height:11px;border-radius:2.5px;margin-right:5px;vertical-align:middle}
+    .uNote{font-size:12.5px;line-height:1.65;background:#F6F9FB;border-left:3px solid ${C.ink};padding:9px 12px;border-radius:0 9px 9px 0;margin-top:8px}
+    .novice{background:linear-gradient(135deg,#EAF4FB,#F2F8F4);border:1px solid #BFD8E8;border-radius:13px;padding:13px 15px;margin-bottom:14px}
+    .noviceHead{display:flex;align-items:center;gap:8px;font-size:13.5px;margin-bottom:5px}
+    .noviceBody{font-size:13px;line-height:1.75;color:#22343F}
+    .term{border-bottom:1.5px dotted ${C.blue};color:${C.blue};cursor:help;position:relative;font-weight:600}
+    .termPop{position:absolute;left:0;top:1.5em;z-index:40;width:min(290px,72vw);background:#102330;color:#D8E6EE;border-radius:10px;padding:10px 12px;font-size:11.5px;line-height:1.6;font-weight:400;box-shadow:0 6px 20px rgba(16,35,48,.35)}
+    .termPop b{display:block;color:#9FD8FF;margin-bottom:3px}
+    .lossBar{margin-top:10px}
+    .lossBarTrack{display:flex;height:14px;border-radius:7px;overflow:hidden;border:1px solid ${C.line}}
+    .lossBarSeg{min-width:3px}
+    .lossBarLegend{display:flex;gap:10px;flex-wrap:wrap;font-size:11px;color:${C.sub};margin-top:6px;align-items:center}
+
+    .mapLayout{display:grid;grid-template-columns:340px 1fr;gap:14px;align-items:start}
+    .mapsGrid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
+    .mapPane{background:#fff;border:1px solid ${C.line};border-radius:12px;padding:10px}
+    .mapHead{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:7px;font-size:13px}
+    .mapSub{font-size:11px;color:${C.sub};margin-left:7px}
+    .mapStat{font-size:12px}
+    .mapStat b{font-size:16px;font-family:ui-monospace,monospace}
+    .mapKpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin-top:8px}
+    .mapKpis>div{border-left:3px solid ${C.line};padding:1px 0 1px 7px}
+    .mapKpis span{display:block;font-size:10px;color:${C.sub}}
+    .mapKpis b{font-size:13px;font-family:ui-monospace,monospace}
+    .abGrid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+    .abLabel{font-size:12px;font-weight:800;letter-spacing:.08em;margin-bottom:6px}
+    .compareBox{background:#fff;border:1.5px solid ${C.accent};border-radius:12px;padding:12px 14px;font-size:13.5px;line-height:1.7;margin-bottom:12px}
+    .selGrid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+
+    .rssiMeter{max-width:340px;margin:10px auto 0}
+    .rssiScreen{background:#10241C;border:2px solid #0A1812;border-radius:10px;padding:10px 14px;text-align:center}
+    .rssiLabel{font-size:10px;letter-spacing:.3em;color:#5E8F7C}
+    .rssiValue{font-size:34px;font-weight:800;color:#7BE3C5;font-family:ui-monospace,monospace;transition:color .3s}
+    .rssiValue span{font-size:14px;color:#5E8F7C}
+    .rssiDelta{font-size:12px;font-weight:700;font-family:ui-monospace,monospace}
+    .rssiBarTrack{position:relative;height:12px;background:#E4EDF2;border-radius:6px;margin-top:8px;overflow:visible}
+    .rssiBarFill{height:100%;border-radius:6px;transition:width .5s ease,background .5s ease}
+    .rssiBarBase{position:absolute;top:-3px;width:2.5px;height:18px;background:${C.ink};border-radius:2px}
+    .rssiTicks{display:flex;justify-content:space-between;font-size:10px;color:${C.sub};font-family:ui-monospace,monospace;margin-top:3px}
+    .expGrid{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+    .threeCol{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:10px}
+    .factorBox{background:#F6F9FB;border:1px solid ${C.line};border-radius:11px;padding:11px 12px}
+    .factorBox b{font-size:13px}
+    .factorBox p{font-size:12px;line-height:1.6;color:#33454F;margin:6px 0 0}
+
+    .solList{display:grid;gap:8px}
+    .solItem{display:block;text-align:left;background:#fff;border:1.5px solid ${C.line};border-radius:11px;padding:10px 12px;cursor:pointer;color:${C.ink};font-family:inherit}
+    .solItem:hover{border-color:${C.blue}}
+    .solOn{border-color:${C.ok};box-shadow:inset 0 0 0 1.5px ${C.ok};background:#F4FAF8}
+    .solHead{display:flex;justify-content:space-between;gap:8px;font-size:13px;align-items:baseline}
+    .solMeta{font-size:12px;margin:3px 0}
+
+    .utilTabs{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+    .utilTab{display:flex;align-items:center;gap:8px;border:2px solid ${C.line};background:#fff;border-radius:12px;padding:10px 22px;font-size:15px;font-weight:800;color:${C.sub};cursor:pointer}
+    .utilTab.on{background:#fff;box-shadow:0 2px 6px rgba(16,35,48,.08)}
+    .scGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:12px}
+    .scCard{display:flex;flex-direction:column;gap:8px;text-align:left;background:#fff;border:1.5px solid ${C.line};border-radius:13px;padding:14px;cursor:pointer;color:${C.ink};font-family:inherit;box-shadow:0 1px 2px rgba(16,35,48,.05)}
+    .scCard:hover{border-color:${C.blue};transform:translateY(-1.5px);transition:all .15s}
+    .scCardHead{display:flex;align-items:center;gap:9px;font-size:14px}
+    .scCardFoot{display:flex;justify-content:space-between;align-items:center;margin-top:auto;padding-top:6px;border-top:1px dashed ${C.line};font-size:12px}
+    .scHead{display:flex;align-items:center;gap:12px;margin:12px 0}
+    .scTitle{font-size:19px;font-weight:800;margin:0}
+    .scIcon{font-size:26px}
+    .physTable{display:grid;gap:7px;margin-bottom:6px}
+    .physRow{display:grid;grid-template-columns:minmax(130px,1fr) auto;gap:2px 12px;background:#F6F9FB;border:1px solid ${C.line};border-radius:9px;padding:8px 11px;font-size:12.5px;align-items:baseline}
+    .physRow .small{grid-column:1/-1}
+    .physDb{font-family:ui-monospace,monospace;font-weight:800;text-align:right}
+    .gauge{margin:10px 0 2px}
+    .gaugeTrack{position:relative;height:18px;border-radius:9px;border:1px solid ${C.line};overflow:hidden;background:#fff}
+    .gaugeZone{position:absolute;top:0;height:100%}
+    .gaugeMark{position:absolute;top:0;height:100%;width:0;border-left:2.5px dashed ${C.sub}}
+    .gaugeNeedle{position:absolute;top:-2px;height:22px;width:5px;border-radius:3px;transition:left .45s ease,background .45s ease;box-shadow:0 1px 3px rgba(16,35,48,.4)}
+    .gaugeLabels{display:flex;justify-content:space-between;font-size:10px;color:${C.sub};margin-top:3px}
+    .proNote{background:#F6F9FB;border:1px dashed ${C.line};border-radius:10px;padding:9px 12px;font-size:12.5px}
+    .proNote summary{cursor:pointer;font-weight:700;color:${C.blue}}
+
+    .hero{background:linear-gradient(135deg,#0F2B45,#173E5E 55%,#1B5A74);border-radius:16px;padding:30px 28px;color:#EAF4FB;margin-bottom:14px}
+    .heroEyebrow{font-size:11.5px;letter-spacing:.25em;color:#7BC8E8;font-weight:700}
+    .heroTitle{font-size:clamp(21px,3.4vw,32px);line-height:1.45;margin:10px 0 12px;font-weight:800}
+    .heroTitle span{color:#fff;background:rgba(255,255,255,.13);padding:0 6px;border-radius:6px}
+    .heroLead{font-size:13.5px;line-height:1.85;max-width:780px;color:#C9E2F0}
+    .heroCtas{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+    .heroCtas .btn{border-color:rgba(255,255,255,.4);background:transparent;color:#EAF4FB}
+    .heroCtas .btnP{background:#fff;color:#0F2B45;border-color:#fff;font-weight:800}
+    .statGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:14px}
+    .statCard{background:#fff;border:1px solid ${C.line};border-radius:13px;padding:14px 16px}
+    .statValue{font-size:24px;font-weight:800;color:${C.blue};font-family:ui-monospace,monospace}
+    .statLabel{font-size:13px;font-weight:700;margin:3px 0}
+    .issueGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:10px}
+    .tabGuide{display:grid;gap:8px}
+    .tabGuideItem{display:flex;align-items:center;gap:13px;text-align:left;background:#F6F9FB;border:1px solid ${C.line};border-radius:11px;padding:11px 14px;cursor:pointer;color:${C.ink};font-family:inherit;font-size:13px}
+    .tabGuideItem:hover{border-color:${C.blue};background:#EEF5FB}
+    .tabGuideIcon{font-size:23px}
+    .tabGuideArrow{margin-left:auto;color:${C.blue};font-weight:800;font-size:16px}
+    .who{font-size:10.5px;color:#fff;background:${C.cyan};border-radius:999px;padding:2px 8px;margin-left:6px;font-weight:700}
+    .aboutBox{font-size:12px;color:${C.sub};line-height:1.8;background:#fff;border:1px solid ${C.line};border-radius:12px;padding:13px 16px}
+
+    @media(max-width:1000px){.mapLayout{grid-template-columns:1fr}.expGrid{grid-template-columns:1fr}}
+    @media(max-width:760px){
+      .mapsGrid,.abGrid,.selGrid{grid-template-columns:1fr}
+      .threeCol,.statGrid{grid-template-columns:1fr}
+      .mapKpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+      .shellTitle{font-size:18px}
+      .pick{grid-template-columns:repeat(2,minmax(0,1fr)) !important}
+    }
   `, []);
 
-  const [reduced, setReduced] = useState(false);
-  useEffect(() => {
-    const mq = window.matchMedia?.("(prefers-reduced-motion: reduce)");
-    if (!mq) return;
-    setReduced(mq.matches);
-    const fn = (e) => setReduced(e.matches);
-    mq.addEventListener?.("change", fn);
-    return () => mq.removeEventListener?.("change", fn);
-  }, []);
+  return (
+    <div className="shellRoot">
+      <style>{css}</style>
+      <div className="shellWrap">
+        <header className="shellHead">
+          <div>
+            <div className="shellEyebrow">STAF × SMART METER RF SIMULATOR</div>
+            <h1 className="shellTitle">スマートメーター 電波とアンテナ シミュレーター</h1>
+            <div className="shellSub">アンテナの静特性が「設置できるエリア」を決める——電気・ガス・水道の現場を体感する</div>
+          </div>
+          <div className="small" style={{ textAlign: "right" }}>テレメータリング推進協議会<br />技術検討WG 講演連動コンテンツ</div>
+        </header>
 
-  const [helpKey, setHelpKey] = useState("dB");
-  const [model, setModel] = useState("FS"); // FS | CI | TWO
-  const [status, setStatus] = useState("");
-  const [modal, setModal] = useState(null);
-  const setModalText = (t) => setModal((m) => (m ? { ...m, text: t } : m));
-  const flash = useCallback((msg) => { setStatus(msg); setTimeout(() => setStatus(""), 1900); }, []);
-
-  const freq = useNum(920, { min: 1, max: 100000 });
-  const dTest = useNum(300, { min: 1 });
-  const graphMaxKm = useNum(20, { min: 2, max: 1000 });
-  const txP = useNum(13);
-  const txG = useNum(-2);
-  const rxG = useNum(0);
-  const sens = useNum(-105);
-  const targetMargin = useNum(10, { min: 0 });
-  const [envKey, setEnvKey] = useState("urban");
-  const [placeKey, setPlaceKey] = useState("wall");
-  const [floodOn, setFloodOn] = useState(false);
-  const [scenarioKey, setScenarioKey] = useState("none");
-  const [antennaKey, setAntennaKey] = useState("baseline");
-  const addLoss = useNum(0, { min: 0 });
-  const polExtraLoss = useNum(0, { min: 0 });
-  const bodyLoss = useNum(0, { min: 0 });
-  const ht = useNum(1.8, { min: 0.1 });
-  const hr = useNum(5, { min: 0.1 });
-  const nullPct = useNum(10, { min: 0, max: 50 });
-  const txCable = useNum(0, { min: 0 });
-  const txVswr = useNum(0, { min: 0 });
-  const txEff = useNum(0, { min: 0 });
-  const rxCable = useNum(0, { min: 0 });
-  const rxVswr = useNum(0, { min: 0 });
-  const rxEff = useNum(0, { min: 0 });
-  const [txPol, setTxPol] = useState("V");
-  const [rxPol, setRxPol] = useState("V");
-  const [utility, setUtility] = useState("elec");
-  const [bandKey, setBandKey] = useState("wisun");
-
-  const applyBand = (key, silent = false) => {
-    setBandKey(key);
-    const b = BANDS.find((q) => q.key === key);
-    if (!b) return;
-    freq.setV(b.freq); txP.setV(b.txP); sens.setV(b.sens);
-    if (!silent) flash(`通信方式「${b.label}」の代表値を設定しました`);
-  };
-  const applyUtility = (key) => {
-    setUtility(key);
-    const u = UTILITIES.find((q) => q.key === key);
-    if (!u) return;
-    applyBand(u.v.band, true);
-    txG.setV(u.v.txG); rxG.setV(u.v.rxG); targetMargin.setV(u.v.margin);
-    setEnvKey(u.v.env); setPlaceKey(u.v.place); setFloodOn(false);
-    ht.setV(u.v.ht); hr.setV(u.v.hr); dTest.setV(u.v.dTest);
-    setTxPol(u.v.txPol); setRxPol(u.v.rxPol);
-    flash(`「${u.label}メーター」の代表値を設定しました`);
-  };
-
-  const [rows, setRows] = useState([10, 30, 100, 300, 500, 1000, 1500, 2000].map((d, i) => ({ point: `P${i + 1}`, d, rssi: [NaN, NaN, NaN, NaN, NaN] })));
-
-  const place = PLACES.find((p) => p.key === placeKey) || PLACES[0];
-  const env = ENV_OPTIONS.find((o) => o.key === envKey) || ENV_OPTIONS[0];
-  const antennaConfig = ANTENNA_CONFIGS.find((a) => a.key === antennaKey) || ANTENNA_CONFIGS[0];
-  const isPit = placeKey.startsWith("pit");
-  const lambda = 300 / freq.v;
-  const antennaNet = antennaConfig.gainDelta - antennaConfig.implLoss;
-  const effectiveTxG = txG.v + antennaConfig.gainDelta;
-  const txBaseLoss = txCable.v + txVswr.v + txEff.v;
-  const txLoss = txBaseLoss + antennaConfig.implLoss;
-  const rxLoss = rxCable.v + rxVswr.v + rxEff.v;
-  const eirp = txP.v + effectiveTxG - txLoss;
-  const autoPolLoss = calcPolLoss(txPol, rxPol);
-  const totalPolLoss = autoPolLoss + polExtraLoss.v;
-  const floodNom = floodOn && isPit ? FLOOD_LOSS.nominal : 0;
-  const floodWorst = floodOn && isPit ? FLOOD_LOSS.max : 0;
-  const fieldScenario = SMART_METER_SCENARIOS.find((s) => s.key === scenarioKey) || SMART_METER_SCENARIOS[0];
-  const fieldScenarioLoss = fieldScenario.loss;
-
-  const envLossNominal = env.loss + place.loss + floodNom + fieldScenarioLoss + addLoss.v + totalPolLoss + bodyLoss.v;
-  const envLossWorst = env.lossMax + place.lossMax + floodWorst + fieldScenarioLoss + addLoss.v + totalPolLoss + bodyLoss.v;
-  const dbp = (4 * Math.PI * ht.v * hr.v) / lambda;
-
-  const basePathLoss = useCallback((d, envLossValue, useWorst = false) => {
-    const fspl = 32.44 + 20 * log10(freq.v) + 20 * log10(d / 1000);
-    if (model === "CI") {
-      const n = useWorst ? Math.max(env.n + 0.5, env.n) : env.n;
-      const fspl1m = 32.44 + 20 * log10(freq.v) + 20 * log10(0.001);
-      return fspl1m + 10 * n * log10(d) + envLossValue;
-    }
-    if (model === "TWO") {
-      const dr = Math.sqrt(d * d + (ht.v + hr.v) ** 2) - Math.sqrt(d * d + (ht.v - hr.v) ** 2);
-      const interference = clamp(Math.abs(2 * Math.sin((Math.PI * dr) / lambda)), 1e-9);
-      return fspl - 20 * log10(interference) + envLossValue;
-    }
-    let loss = fspl + envLossValue;
-    if (d > dbp) loss += 20 * log10(d / dbp); // 遠方d^4傾向の簡易補正
-    return loss;
-  }, [freq.v, model, env.n, ht.v, hr.v, lambda, dbp]);
-
-  const prxAt = useCallback((d) => eirp + rxG.v - rxLoss - basePathLoss(d, envLossNominal, false), [eirp, rxG.v, rxLoss, basePathLoss, envLossNominal]);
-  const marginAt = useCallback((d) => prxAt(d) - sens.v, [prxAt, sens.v]);
-  const prxWorstAt = useCallback((d) => eirp + rxG.v - rxLoss - basePathLoss(d, envLossWorst, true), [eirp, rxG.v, rxLoss, basePathLoss, envLossWorst]);
-  const marginWorstAt = useCallback((d) => prxWorstAt(d) - sens.v, [prxWorstAt, sens.v]);
-
-  const windowPct = model === "TWO" ? nullPct.v / 100 : 0;
-  const windowStats = useCallback((d, fn = marginAt) => {
-    if (windowPct <= 0) { const m = fn(d); return { min: m, avg: m }; }
-    const n = 11;
-    let mn = Infinity, sum = 0;
-    for (let i = 0; i < n; i++) {
-      const f = 1 - windowPct + (2 * windowPct * i) / (n - 1);
-      const m = fn(d * f);
-      mn = Math.min(mn, m); sum += m;
-    }
-    return { min: mn, avg: sum / n };
-  }, [marginAt, windowPct]);
-
-  const evalStats = useMemo(() => model === "TWO" ? windowStats(dTest.v, marginAt) : { min: marginAt(dTest.v), avg: marginAt(dTest.v) }, [model, windowStats, marginAt, dTest.v]);
-  const evalWorstStats = useMemo(() => model === "TWO" ? windowStats(dTest.v, marginWorstAt) : { min: marginWorstAt(dTest.v), avg: marginWorstAt(dTest.v) }, [model, windowStats, marginWorstAt, dTest.v]);
-  const mNominal = marginAt(dTest.v);
-  const mJudge = evalStats.min;
-  const mWorst = evalWorstStats.min;
-
-  const outageRisk = place.outageRisk || (floodOn && isPit) || envLossWorst >= 95;
-  const judge = useMemo(() => {
-    if (outageRisk && mWorst < 0) return { level: "bad", label: "通信不能リスク", color: C.bad, bg: C.badBg, desc: "遮蔽・浸水・悲観条件で通信不能の恐れ" };
-    if (mJudge >= targetMargin.v && mWorst >= 0) return { level: "ok", label: "安定", color: C.ok, bg: C.okBg, desc: "通常条件で目標マージンを満たします" };
-    if (mJudge >= 0) return { level: "warn", label: "要注意", color: C.warn, bg: C.warnBg, desc: "受信可能だが余裕不足です" };
-    return { level: "ng", label: "対策必要", color: C.ng, bg: C.ngBg, desc: "受信感度を下回る条件があります" };
-  }, [outageRisk, mWorst, mJudge, targetMargin.v]);
-
-  const maxDistanceMain = useMemo(() => {
-    const fn = model === "TWO" ? (d) => windowStats(d, marginAt).min : marginAt;
-    return model === "TWO" ? searchFarthestPassingDistance(fn, targetMargin.v) : searchReliableDistance(fn, targetMargin.v, 1e7, 1000);
-  }, [model, windowStats, marginAt, targetMargin.v]);
-  const maxDistanceWorst = useMemo(() => {
-    const fn = model === "TWO" ? (d) => windowStats(d, marginWorstAt).min : marginWorstAt;
-    return model === "TWO" ? searchFarthestPassingDistance(fn, targetMargin.v) : searchReliableDistance(fn, targetMargin.v, 1e7, 1000);
-  }, [model, windowStats, marginWorstAt, targetMargin.v]);
-
-  const tableData = useMemo(() => rows.map((r) => {
-    const med = median(r.rssi);
-    const pred = prxAt(r.d);
-    return { ...r, median: med, pred, estAdd: Number.isFinite(med) ? clamp(pred - med, 0) : NaN };
-  }), [rows, prxAt]);
-  const recAddLoss = useMemo(() => median(tableData.map((r) => r.estAdd)), [tableData]);
-
-  const graphMaxX = useMemo(() => clamp(Math.max(2000, dTest.v, graphMaxKm.v * 1000, maxDistanceMain * 1.15), 2000, 1000000), [dTest.v, graphMaxKm.v, maxDistanceMain]);
-  const line = useMemo(() => Array.from({ length: 180 }, (_, i) => {
-    const d = 10 ** ((log10(graphMaxX) * i) / 179);
-    return { d, m: marginAt(d) };
-  }), [graphMaxX, marginAt]);
-  const worstLine = useMemo(() => Array.from({ length: 180 }, (_, i) => {
-    const d = 10 ** ((log10(graphMaxX) * i) / 179);
-    return { d, m: marginWorstAt(d) };
-  }), [graphMaxX, marginWorstAt]);
-  const pts = useMemo(() => tableData.filter((r) => Number.isFinite(r.median)).map((r) => ({ d: r.d, m: r.median - sens.v, point: r.point, median: r.median, estAdd: r.estAdd })), [tableData, sens.v]);
-
-  const lossBreakdown = useMemo(() => [
-    { label: "設置遮蔽", value: place.loss },
-    { label: "周辺環境", value: env.loss },
-    { label: "浸水", value: floodNom },
-    { label: "現場シナリオ", value: fieldScenarioLoss },
-    { label: "偏波", value: totalPolLoss },
-    { label: "近接追加", value: bodyLoss.v },
-    { label: "現場補正", value: addLoss.v },
-    { label: "アンテナ実装", value: antennaConfig.implLoss },
-    { label: "Tx実装損失", value: txBaseLoss },
-    { label: "Rx実装損失", value: rxLoss },
-  ].sort((a, b) => b.value - a.value), [place.loss, env.loss, floodNom, fieldScenarioLoss, totalPolLoss, bodyLoss.v, addLoss.v, antennaConfig.implLoss, txBaseLoss, rxLoss]);
-
-  const explanation = useMemo(() => buildExplanation({ judge, mJudge, mNominal, mWorst, targetMargin: targetMargin.v, dTest: dTest.v, place, floodOn, autoPolLoss, totalPolLoss, freq: freq.v, model, maxDistance: maxDistanceMain, lossBreakdown, outageRisk }), [judge, mJudge, mNominal, mWorst, targetMargin.v, dTest.v, place, floodOn, autoPolLoss, totalPolLoss, freq.v, model, maxDistanceMain, lossBreakdown, outageRisk]);
-
-  const uMeta = UTILITIES.find((u) => u.key === utility) || UTILITIES[0];
-  const bMeta = BANDS.find((b) => b.key === bandKey);
-  const modelNote = MODEL_NOTES[model] || MODEL_NOTES.FS;
-  const actionItems = JUDGE_ACTIONS[judge.level] || JUDGE_ACTIONS.warn;
-  const requiredImprovement = Math.max(0, targetMargin.v - mJudge, -mWorst);
-  const antennaComparisons = useMemo(() => ANTENNA_CONFIGS
-    .filter((a) => a.key !== antennaConfig.key)
-    .map((a) => {
-      const net = a.gainDelta - a.implLoss;
-      const delta = net - antennaNet;
-      return { ...a, net, delta, mJudge: mJudge + delta, mWorst: mWorst + delta };
-    })
-    .sort((a, b) => b.mJudge - a.mJudge), [antennaConfig.key, antennaNet, mJudge, mWorst]);
-  const antennaCandidates = antennaComparisons.filter((a) => a.delta > 0).slice(0, 3);
-  const makerAdvice = useMemo(() => {
-    if (requiredImprovement <= 0) {
-      return {
-        label: "現行構成で評価継続",
-        text: "目標余裕は確保できています。次は現地RSSI、筐体実装後、量産ばらつきで机上値との差を確認する段階です。",
-      };
-    }
-    if (requiredImprovement <= 3) {
-      return {
-        label: "配置・整合の微調整",
-        text: "あと数dBの不足です。アンテナ位置、GNDクリアランス、ケーブル長、コネクタ損失の見直しで回収できる可能性があります。",
-      };
-    }
-    if (requiredImprovement <= 8) {
-      return {
-        label: "内蔵最適化またはフレキ化",
-        text: "標準的な内蔵条件だけでは余裕が薄い領域です。筐体込みのアンテナ調整、フレキ配置、金属からの距離確保を検討します。",
-      };
-    }
-    if (requiredImprovement <= 15) {
-      return {
-        label: "外部アンテナ化を比較",
-        text: "現場損失が支配的です。外部ホイップや防水外部アンテナで放射点を金属・水・蓋材の外へ出す案を比較します。",
-      };
-    }
-    return {
-      label: "設置条件から再設計",
-      text: "アンテナ単体だけで吸収しにくい不足量です。蓋材変更、受信局追加、中継、通信方式変更も含めてリンク予算を再設計します。",
-    };
-  }, [requiredImprovement]);
-  const consultationMemo = [
-    `${uMeta.label}メーター / ${bMeta?.label ?? "カスタム"}`,
-    `${place.label}${floodOn ? " / 浸水あり" : ""}`,
-    `${fieldScenario.label}${fieldScenarioLoss ? ` +${fieldScenarioLoss}dB` : ""}`,
-    `必要改善 ${fmt(requiredImprovement, 1)}dB`,
-  ];
-  const graphParams = [
-    ["メーター", `${uMeta.label}`],
-    ["方式", bMeta?.label ?? "カスタム"],
-    ["モデル", model === "TWO" ? "2波" : model],
-    ["周波数", `${fmt(freq.v, 0)} MHz`],
-    ["目標距離", fmtDistance(dTest.v)],
-    ["目標余裕", `${fmt(targetMargin.v, 0)} dB`],
-    ["アンテナ", `${antennaConfig.label} ${fmtSigned(antennaNet)} dB`],
-    ["現場条件", fieldScenario.loss ? `${fieldScenario.label} +${fieldScenario.loss} dB` : "なし"],
-    ["設置", `${place.label}${floodOn ? " / 浸水あり" : ""}`],
-    ["環境", env.label],
-    ["高さ", `Tx ${fmt(ht.v, 1)} m / Rx ${fmt(hr.v, 1)} m`],
-    ["損失", `通常 ${fmt(envLossNominal, 0)} dB / 悲観 ${fmt(envLossWorst, 0)} dB`],
-  ];
-
-  const updateRow = (idx, key, val) => setRows((rs) => rs.map((r, i) => (i === idx ? { ...r, [key]: val } : r)));
-  const updateRssi = (idx, j, val) => setRows((rs) => rs.map((r, i) => (i === idx ? { ...r, rssi: r.rssi.map((v, k) => (k === j ? val : v)) } : r)));
-  const addRow = () => setRows((rs) => [...rs, { point: `P${rs.length + 1}`, d: rs.length ? rs[rs.length - 1].d + 100 : 100, rssi: [NaN, NaN, NaN, NaN, NaN] }]);
-  const sortRows = () => { setRows((rs) => [...rs].sort((a, b) => a.d - b.d)); flash("距離順に並び替えました"); };
-  const clearLogs = () => { setRows((rs) => rs.map((r) => ({ ...r, rssi: [NaN, NaN, NaN, NaN, NaN] }))); flash("RSSIをクリアしました"); };
-  const applyRecAdd = () => { if (!Number.isFinite(recAddLoss)) return; addLoss.setV(round(addLoss.v + recAddLoss, 1)); flash("推奨現場補正損失を加算しました"); };
-  const syncGraphRange = () => { graphMaxKm.setV(clamp(Math.ceil((maxDistanceMain * 1.2) / 1000), 2, 1000)); flash("表示距離上限を自動調整しました"); };
-  const openCSVExport = () => setModal({ title: "CSV出力（コピーして利用）", text: toCSV(tableData), mode: "view" });
-  const openCSVImport = () => setModal({ title: "CSV/TSV貼り付け（Point, 距離, RSSI1..5）", text: "Point,Distance_m,RSSI1,RSSI2,RSSI3,RSSI4,RSSI5\nP1,10,-70,-71,-69,-70,-70\nP2,30,-82,-81,-83,-82,-82\n", mode: "import" });
-  const applyCSVImport = () => {
-    const parsed = parseLog(modal?.text || "");
-    if (!parsed.length) return flash("取り込める行がありません。形式を確認してください");
-    setRows(parsed.slice(0, 30)); setModal(null); flash(`取り込み完了: ${parsed.length} 行`);
-  };
-  const resultText = [
-    `種別: ${uMeta.label}メーター / 方式: ${bMeta?.label ?? "カスタム"} / 設置: ${place.label}${floodOn ? "（浸水あり）" : ""}`,
-    `${fmt(freq.v, 0)} MHz / モデル: ${model} / 目標マージン: ${fmt(targetMargin.v, 0)} dB`,
-    `アンテナ構成: ${antennaConfig.label} / 実効補正 ${fmtSigned(antennaNet)} dB / 有効Tx利得 ${fmt(effectiveTxG)} dBi`,
-    `現場シナリオ: ${fieldScenario.label}${fieldScenarioLoss ? `（+${fieldScenarioLoss} dB）` : ""}`,
-    `EIRP: ${fmt(eirp)} dBm / 通常損失計: ${fmt(envLossNominal)} dB / 悲観損失計: ${fmt(envLossWorst)} dB`,
-    `目標距離 ${fmtDistance(dTest.v)}: 通常マージン ${fmtSigned(mNominal)} dB / 判定用 ${fmtSigned(mJudge)} dB / 悲観 ${fmtSigned(mWorst)} dB → ${judge.label}`,
-    `最大到達距離: 通常 ${fmtDistance(maxDistanceMain)} / 悲観 ${fmtDistance(maxDistanceWorst)}`,
-    `偏波: Tx ${txPol} × Rx ${rxPol} / 偏波損失 ${fmt(totalPolLoss, 0)} dB`,
-    `アンテナメーカー視点: ${makerAdvice.label} / 必要改善量 ${fmt(requiredImprovement, 1)} dB`,
-    `設計相談メモ: ${consultationMemo.join(" / ")}`,
-    explanation,
-  ].join("\n");
-  const copyOrShow = async () => {
-    try { await navigator.clipboard.writeText(resultText); flash("コピーしました"); }
-    catch { setModal({ title: "結果（コピー用）", text: resultText, mode: "view" }); }
-  };
-
-  const kpiBlock = (
-    <div className="kpis">
-      <div className="kpi" style={{ background: judge.bg, borderColor: judge.color }}><div className="kpik">リンク判定（目標 {fmtDistance(dTest.v)}）</div><div className="badge" style={{ color: judge.color }}><span className="dot" style={{ background: judge.color }} />{judge.label}</div><div className="small" style={{ color: "#33454F" }}>{judge.desc}</div></div>
-      <div className="kpi"><div className="kpik">判定用マージン</div><div className="kpiv" style={{ color: judge.color }}>{fmtSigned(mJudge)}<span className="unit">dB</span></div><div className="small">中心点 {fmtSigned(mNominal)} dB / 悲観 {fmtSigned(mWorst)} dB</div></div>
-      <div className="kpi"><div className="kpik">{model === "TWO" ? "遠方側 最大到達距離" : "最大到達距離"}</div><div className="kpiv" style={{ color: C.ok }}>{fmtDistance(maxDistanceMain)}</div><div className="small">悲観: {fmtDistance(maxDistanceWorst)}{model === "TWO" ? " / ヌルは判定点で確認" : ""}</div></div>
-      <div className="kpi"><div className="kpik">EIRP / 受信電力</div><div className="kpiv">{fmt(eirp)}<span className="unit">dBm</span></div><div className="small">Prx {fmt(prxAt(dTest.v))} dBm / 感度 {fmt(sens.v, 0)} dBm</div></div>
-      <div className="kpi"><div className="kpik">損失計</div><div className="kpiv">{fmt(envLossNominal)}<span className="unit">dB</span></div><div className="small">悲観 {fmt(envLossWorst)} dB / 偏波 {fmt(totalPolLoss, 0)} dB</div></div>
-    </div>
-  );
-
-  const guideBlock = (
-    <div className="guide">
-      <div className="guidePane">
-        <div className="guideTitle">Next Action</div>
-        <div className="guideMain" style={{ color: judge.color }}>{judge.label}: {judge.desc}</div>
-        <ul className="guideList">{actionItems.map((x) => <li key={x}>{x}</li>)}</ul>
-      </div>
-      <div className="guidePane">
-        <div className="guideTitle">Model Picker</div>
-        <div className="modelChoices">
-          {Object.entries(MODEL_NOTES).map(([key, note]) => (
-            <button key={key} className={`modelChoice ${model === key ? "on" : ""}`} onClick={() => setModel(key)} type="button">
-              <b>{key === "TWO" ? "2波" : key}</b>
-              <span>{note.bestFor}</span>
+        <nav className="tabsNav" aria-label="モード切替">
+          {TABS.map((t) => (
+            <button key={t.key} className={`tabBtn ${tab === t.key ? "tabBtnOn" : ""}`} onClick={() => go(t.key)} aria-current={tab === t.key}>
+              <span>{t.icon}</span>{t.label}
             </button>
           ))}
-        </div>
-      </div>
-      <div className="guidePane">
-        <div className="guideTitle">How To Read</div>
-        <div className="readout">
-          <div className="readCell"><b>マージン</b><span>0dB未満は感度割れ。目標dB以上なら余裕あり。</span></div>
-          <div className="readCell"><b>悲観値</b><span>雨・姿勢・遮蔽ばらつきを見込んだ厳しめの見方。</span></div>
-          <div className="readCell"><b>損失</b><span>数値が大きいほど電波が弱くなる要因。</span></div>
-        </div>
-      </div>
-      <div className="guidePane">
-        <div className="guideTitle">Field Takeaway</div>
-        <div className="guideMain">現場条件でアンテナ余裕を試算</div>
-        <ul className="guideList">{SMART_METER_GUIDE.map((x) => <li key={x}>{x}</li>)}</ul>
-      </div>
-    </div>
-  );
+        </nav>
 
-  const makerBlock = (
-    <div className="guide">
-      <div className="guidePane">
-        <div className="guideTitle">STAF Antenna View</div>
-        <div className="guideMain">{antennaConfig.label}: 実効 {fmtSigned(antennaNet)} dB</div>
-        <ul className="guideList">
-          <li>有効Tx利得 {fmt(effectiveTxG)} dBi / アンテナ実装損失 {fmt(antennaConfig.implLoss, 1)} dB</li>
-          <li>{antennaConfig.lesson}</li>
-        </ul>
-      </div>
-      <div className="guidePane">
-        <div className="guideTitle">Design Gap</div>
-        <div className="guideMain" style={{ color: requiredImprovement > 0 ? C.warn : C.ok }}>
-          {makerAdvice.label}
-        </div>
-        <ul className="guideList">
-          <li>必要改善量 {fmt(requiredImprovement, 1)} dB</li>
-          <li>{makerAdvice.text}</li>
-        </ul>
-      </div>
-      <div className="guidePane">
-        <div className="guideTitle">Antenna Candidates</div>
-        <div className="guideMain">構成変更時のマージン差</div>
-        <ul className="guideList">
-          {antennaCandidates.length ? antennaCandidates.map((a) => (
-            <li key={a.key}>{a.label}: {fmtSigned(a.delta)} dB → 判定 {fmtSigned(a.mJudge)} dB</li>
-          )) : <li>現在のアンテナ構成が候補内で最も有利です。</li>}
-        </ul>
-      </div>
-      <div className="guidePane">
-        <div className="guideTitle">Consultation Memo</div>
-        <div className="guideMain">相談時に揃える条件</div>
-        <ul className="guideList">{STAF_DESIGN_GUIDE.map((x) => <li key={x}>{x}</li>)}</ul>
-      </div>
-    </div>
-  );
+        <main>
+          {tab === "home" && <Home onNavigate={go} />}
+          {tab === "map" && <CoverageMap />}
+          {tab === "story" && <StoryMode />}
+          {tab === "pit" && <PitLab />}
+          {tab === "lab" && <ExperimentLab />}
+          {tab === "pro" && <ProSimulator />}
+        </main>
 
-  const viewCard = (
-    <div className="card">
-      <div className="ct">判定グラフ — 安全域 / 注意域 / 不成立域</div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(132px, 1fr))", gap: 6, marginBottom: 10 }}>
-        {graphParams.map(([k, v]) => (
-          <div key={k} style={{ border: `1px solid ${C.line}`, borderRadius: 8, background: "#F6F9FB", padding: "6px 8px", minWidth: 0 }}>
-            <div style={{ fontSize: 10.5, color: C.sub, letterSpacing: ".05em", fontWeight: 700 }}>{k}</div>
-            <div style={{ fontSize: 12, color: C.ink, fontWeight: 800, lineHeight: 1.25, overflowWrap: "anywhere" }}>{v}</div>
-          </div>
-        ))}
+        <footer className="shellFooter">
+          本ツールは机上概算用であり、通信性能・到達距離を保証するものではありません。数値は公開情報・文献値・講演実測に基づく代表値で、実機仕様・法令・ARIB規格・現地測定に基づく確認が必要です。
+          ／ アンテナ・無線実装のご相談は「基板設計」の段階から——スタッフ株式会社（新横浜）
+        </footer>
       </div>
-      <PropagationScene maxX={graphMaxX} envKey={envKey} placeKey={placeKey} utility={utility} floodOn={floodOn} ht={ht.v} hr={hr.v} dTest={dTest.v} maxD={maxDistanceMain} line={line} target={targetMargin.v} reduced={reduced} />
-      <MarginChart line={line} worstLine={worstLine} pts={pts} maxX={graphMaxX} target={targetMargin.v} maxMarker={maxDistanceMain} sens={sens.v} dTest={dTest.v} />
-      <div className="legend"><span><span className="sw" style={{ background: C.ink, height: 4 }} />通常予測</span><span><span className="sw" style={{ background: C.ng, height: 3 }} />悲観予測</span><span><span className="sw" style={{ background: marginColor(mJudge, targetMargin.v), height: 4 }} />目標距離</span><span><span className="swd" />実測点</span><span><button className="btn" onMouseEnter={() => setHelpKey("dB")} onClick={syncGraphRange}>表示距離を自動合わせ</button></span></div>
-      <div className="small" style={{ marginTop: 8 }}>背景が緑なら目標マージン達成、黄なら受信可能だが余裕不足、赤なら感度割れです。グラフ上のホバーで距離・マージン・Prxを表示します。</div>
-    </div>
-  );
-
-  return (
-    <div className="app">
-      <style>{css}</style>
-      <div className="wrap">
-        <div className="head">
-          <div><div className="eyebrow">STAF ANTENNA DESIGN VIEW</div><h1 className="title">スマートメーター RFリンク・アンテナ構成シミュレーター</h1><div className="sub">損失レンジ・偏波・金属遮蔽・浸水・2波ヌルに加え、内蔵/外部/防水アンテナ構成を比較</div></div>
-          <div className="row">
-            <div className="seg" onMouseEnter={() => setHelpKey("model")}><button className={model === "FS" ? "on" : ""} onClick={() => setModel("FS")}>FS</button><button className={model === "CI" ? "on" : ""} onClick={() => setModel("CI")}>CI</button><button className={model === "TWO" ? "on" : ""} onClick={() => setModel("TWO")}>2波</button></div>
-            <button className="btnP btn" onClick={copyOrShow}>結果をコピー</button>
-          </div>
-        </div>
-
-        <div className="modelBox">
-          <div className="modelName">{modelNote.name}</div>
-          <div className="modelText">{modelNote.text}</div>
-        </div>
-
-        {kpiBlock}
-        {guideBlock}
-        {makerBlock}
-
-        <div className="grid">
-          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            <div className="card">
-              <div className="ct">かんたん設定</div>
-              <div className="step"><span className="stepNo">1</span>メーター種別</div>
-              <PickGrid options={UTILITIES} value={utility} onChange={applyUtility} cols={4} big />
-              <div className="uNote"><b>{uMeta.icon} {uMeta.label}メーター（{uMeta.sub}）</b><br />{uMeta.note}</div>
-              <div className="step"><span className="stepNo">2</span>通信方式・バンド</div>
-              <select className="bandSel" value={bandKey} onChange={(e) => applyBand(e.target.value)} onMouseEnter={() => setHelpKey("model")}>{BAND_GROUPS.map((g) => <optgroup key={g} label={g}>{BANDS.filter((b) => b.group === g).map((b) => <option key={b.key} value={b.key}>{b.label}</option>)}</optgroup>)}</select>
-              <div className="small">周波数 {fmt(freq.v, 0)} MHz / 出力 {fmt(txP.v, 0)} dBm / 感度 {fmt(sens.v, 0)} dBm</div>
-              <div className="step"><span className="stepNo">3</span>アンテナ構成</div>
-              <PickGrid options={ANTENNA_CONFIGS} value={antennaKey} onChange={setAntennaKey} cols={2} />
-              <div className="uNote">
-                <b>{antennaConfig.label}: 実効 {fmtSigned(antennaNet)} dB</b><br />
-                {antennaConfig.lesson}
-              </div>
-              <div className="step"><span className="stepNo">4</span>設置場所</div>
-              <PickGrid options={PLACES} value={placeKey} onChange={(k) => { setPlaceKey(k); if (!k.startsWith("pit")) setFloodOn(false); setHelpKey("place"); }} cols={3} />
-              {isPit && <label className="floodChk" onMouseEnter={() => setHelpKey("flood")}><input type="checkbox" checked={floodOn} onChange={(e) => setFloodOn(e.target.checked)} />ピット浸水あり（通常+{FLOOD_LOSS.nominal}dB / 悲観+{FLOOD_LOSS.max}dB）</label>}
-              <div className="step"><span className="stepNo">5</span>周辺環境</div>
-              <PickGrid options={ENV_OPTIONS} value={envKey} onChange={(k) => { setEnvKey(k); setHelpKey("model"); }} cols={3} />
-              <div className="step"><span className="stepNo">6</span>スマートメーター現場シナリオ</div>
-              <div className="chips" style={{ gap: 8 }}>
-                {SMART_METER_SCENARIOS.map((s) => (
-                  <button
-                    key={s.key}
-                    className="chip"
-                    onClick={() => setScenarioKey(s.key)}
-                    style={{
-                      borderColor: scenarioKey === s.key ? C.ink : C.line,
-                      boxShadow: scenarioKey === s.key ? `inset 0 0 0 1px ${C.ink}` : "none",
-                      background: scenarioKey === s.key ? "#F6F9FB" : "#fff",
-                      fontWeight: scenarioKey === s.key ? 800 : 500,
-                    }}
-                  >
-                    {s.label}<span style={{ color: C.sub, marginLeft: 4 }}>{s.sub}</span>
-                  </button>
-                ))}
-              </div>
-              <div className="uNote">
-                <b>{fieldScenario.label}: {fieldScenarioLoss ? `+${fieldScenarioLoss}dB損失` : "基準条件"}</b><br />
-                {fieldScenario.lesson}<br />
-                <span style={{ color: C.sub }}>{SMART_METER_SCENARIO_NOTE}</span>
-              </div>
-              <div className="step"><span className="stepNo">7</span>受信局までの距離</div>
-              <div className="sliderRow"><input className="slider" type="range" min="0" max="1000" value={distToSlider(dTest.v)} onChange={(e) => dTest.setV(sliderToDist(parseInt(e.target.value, 10)))} /><span className="sliderVal">{fmtDistance(dTest.v)}</span></div>
-              <div className="chips" style={{ marginTop: 6 }}>{[50, 100, 300, 500, 1000, 3000].map((d) => <button key={d} className="chip" onClick={() => dTest.setV(d)}>{fmtDistance(d)}</button>)}</div>
-            </div>
-            <div className="card"><div className="ct">結果解説</div><div className="help" style={{ minHeight: 0 }}>{explanation}</div></div>
-            <div className="card"><div className="ct">dB表記メモ</div><div className="help" style={{ minHeight: 0 }}>{HELP.dB}</div></div>
-          </div>
-          {viewCard}
-        </div>
-
-        <div className="footer">本ツールは机上概算用です。通信性能・到達距離を保証するものではありません。プリセット値は代表的な想定例であり、実機仕様・法令・ARIB規格・現地RSSIログに基づく確認が必要です。</div>
-      </div>
-      {status ? <div className="toast">{status}</div> : null}
-      {modal ? <Modal title={modal.title} text={modal.text} setText={setModalText} onClose={() => setModal(null)} onApply={modal.mode === "import" ? applyCSVImport : null} applyLabel="取り込み" /> : null}
     </div>
   );
 }
