@@ -188,6 +188,62 @@ const JUDGE_ACTIONS = {
   ng: ["設置場所損失を下げる対策を優先", "通信方式・周波数帯を見直す", "中継局や受信局配置を再設計"],
   bad: ["金属密閉・鉄蓋・浸水条件を前提に対策", "外部アンテナ化または蓋材変更を検討", "机上計算だけでなく現地試験を必須化"],
 };
+const ANTENNA_CONFIGS = [
+  {
+    key: "baseline",
+    label: "現行代表値",
+    icon: "□",
+    sub: "まず基準比較",
+    gainDelta: 0,
+    implLoss: 0,
+    lesson: "メーター種別プリセットのアンテナ条件をそのまま使います。標準品で足りるか、追加対策が必要かを見る基準です。",
+  },
+  {
+    key: "small_builtin",
+    label: "小型内蔵",
+    icon: "▣",
+    sub: "省スペース優先",
+    gainDelta: -2,
+    implLoss: 2,
+    lesson: "小型筐体やGND近接で効率が落ちやすい構成です。量産サイズ制約が厳しい時のワースト寄り確認に使います。",
+  },
+  {
+    key: "tuned_builtin",
+    label: "内蔵最適化",
+    icon: "◧",
+    sub: "配置/GND調整",
+    gainDelta: 2,
+    implLoss: 0.5,
+    lesson: "アンテナ位置、GNDクリアランス、給電部、筐体材質を合わせて調整する想定です。内蔵のまま数dBを回収したい時に有効です。",
+  },
+  {
+    key: "flex_offset",
+    label: "フレキ貼付",
+    icon: "▱",
+    sub: "金属から逃がす",
+    gainDelta: 2.5,
+    implLoss: 1,
+    lesson: "筐体内で金属板や配管からアンテナを逃がす構成です。内蔵扱いを維持しつつ、設置自由度でマージンを稼ぎます。",
+  },
+  {
+    key: "external_whip",
+    label: "外部ホイップ",
+    icon: "│",
+    sub: "金属外へ出す",
+    gainDelta: 5,
+    implLoss: 1.5,
+    lesson: "金属盤・PS・鉄蓋の外へ放射点を出す想定です。ケーブル損失は増えますが、遮蔽条件では実効改善が大きく出ます。",
+  },
+  {
+    key: "waterproof_external",
+    label: "防水外部",
+    icon: "●",
+    sub: "屋外/ピット向け",
+    gainDelta: 5.5,
+    implLoss: 2,
+    lesson: "屋外・水道ピット・LP容器周辺など、水や金属の影響を避けたい条件向けです。防水構造とケーブル損失をセットで見ます。",
+  },
+];
 const SMART_METER_SCENARIOS = [
   { key: "none", label: "なし", loss: 0, sub: "基準条件", lesson: "まず標準条件で余裕を確認し、現場ばらつきを足した時に何dB残るかを見ます。" },
   { key: "metal_door", label: "金属扉が閉まる", loss: 18, sub: "盤・PS扉で遮蔽", lesson: "検針時は開いていても運用時は閉まる条件です。アンテナを扉面から逃がす、外部アンテナ化する効果が出やすい場面です。" },
@@ -207,6 +263,11 @@ const SMART_METER_GUIDE = [
   "水道ピットは浸水と低位置を別リスクとして見る",
   "取付向き・偏波ずれで余裕が一気に消える",
   "10〜20dBのリンクマージンを設計段階で確保する",
+];
+const STAF_DESIGN_GUIDE = [
+  "標準品で足りるか、筐体込み調整が必要かをdBで切り分ける",
+  "内蔵・外部・防水・多周波の選択を現場条件から決める",
+  "GND近接、金属、ケーブル、アイソレーションを早い段階で潰す",
 ];
 const SMART_METER_SCENARIO_NOTE =
   "現場で起きる扉の開閉・金属近接・水・取付向きの変化を、現在のリンク条件に重ねます。数dBのアンテナ差や10〜20dBの余裕が、現場ばらつきに効くことを確認できます。";
@@ -633,6 +694,7 @@ export default function App() {
   const [placeKey, setPlaceKey] = useState("wall");
   const [floodOn, setFloodOn] = useState(false);
   const [scenarioKey, setScenarioKey] = useState("none");
+  const [antennaKey, setAntennaKey] = useState("baseline");
   const addLoss = useNum(0, { min: 0 });
   const polExtraLoss = useNum(0, { min: 0 });
   const bodyLoss = useNum(0, { min: 0 });
@@ -673,11 +735,15 @@ export default function App() {
 
   const place = PLACES.find((p) => p.key === placeKey) || PLACES[0];
   const env = ENV_OPTIONS.find((o) => o.key === envKey) || ENV_OPTIONS[0];
+  const antennaConfig = ANTENNA_CONFIGS.find((a) => a.key === antennaKey) || ANTENNA_CONFIGS[0];
   const isPit = placeKey.startsWith("pit");
   const lambda = 300 / freq.v;
-  const txLoss = txCable.v + txVswr.v + txEff.v;
+  const antennaNet = antennaConfig.gainDelta - antennaConfig.implLoss;
+  const effectiveTxG = txG.v + antennaConfig.gainDelta;
+  const txBaseLoss = txCable.v + txVswr.v + txEff.v;
+  const txLoss = txBaseLoss + antennaConfig.implLoss;
   const rxLoss = rxCable.v + rxVswr.v + rxEff.v;
-  const eirp = txP.v + txG.v - txLoss;
+  const eirp = txP.v + effectiveTxG - txLoss;
   const autoPolLoss = calcPolLoss(txPol, rxPol);
   const totalPolLoss = autoPolLoss + polExtraLoss.v;
   const floodNom = floodOn && isPit ? FLOOD_LOSS.nominal : 0;
@@ -773,9 +839,10 @@ export default function App() {
     { label: "偏波", value: totalPolLoss },
     { label: "近接追加", value: bodyLoss.v },
     { label: "現場補正", value: addLoss.v },
-    { label: "Tx実装損失", value: txLoss },
+    { label: "アンテナ実装", value: antennaConfig.implLoss },
+    { label: "Tx実装損失", value: txBaseLoss },
     { label: "Rx実装損失", value: rxLoss },
-  ].sort((a, b) => b.value - a.value), [place.loss, env.loss, floodNom, fieldScenarioLoss, totalPolLoss, bodyLoss.v, addLoss.v, txLoss, rxLoss]);
+  ].sort((a, b) => b.value - a.value), [place.loss, env.loss, floodNom, fieldScenarioLoss, totalPolLoss, bodyLoss.v, addLoss.v, antennaConfig.implLoss, txBaseLoss, rxLoss]);
 
   const explanation = useMemo(() => buildExplanation({ judge, mJudge, mNominal, mWorst, targetMargin: targetMargin.v, dTest: dTest.v, place, floodOn, autoPolLoss, totalPolLoss, freq: freq.v, model, maxDistance: maxDistanceMain, lossBreakdown, outageRisk }), [judge, mJudge, mNominal, mWorst, targetMargin.v, dTest.v, place, floodOn, autoPolLoss, totalPolLoss, freq.v, model, maxDistanceMain, lossBreakdown, outageRisk]);
 
@@ -783,6 +850,52 @@ export default function App() {
   const bMeta = BANDS.find((b) => b.key === bandKey);
   const modelNote = MODEL_NOTES[model] || MODEL_NOTES.FS;
   const actionItems = JUDGE_ACTIONS[judge.level] || JUDGE_ACTIONS.warn;
+  const requiredImprovement = Math.max(0, targetMargin.v - mJudge, -mWorst);
+  const antennaComparisons = useMemo(() => ANTENNA_CONFIGS
+    .filter((a) => a.key !== antennaConfig.key)
+    .map((a) => {
+      const net = a.gainDelta - a.implLoss;
+      const delta = net - antennaNet;
+      return { ...a, net, delta, mJudge: mJudge + delta, mWorst: mWorst + delta };
+    })
+    .sort((a, b) => b.mJudge - a.mJudge), [antennaConfig.key, antennaNet, mJudge, mWorst]);
+  const antennaCandidates = antennaComparisons.filter((a) => a.delta > 0).slice(0, 3);
+  const makerAdvice = useMemo(() => {
+    if (requiredImprovement <= 0) {
+      return {
+        label: "現行構成で評価継続",
+        text: "目標余裕は確保できています。次は現地RSSI、筐体実装後、量産ばらつきで机上値との差を確認する段階です。",
+      };
+    }
+    if (requiredImprovement <= 3) {
+      return {
+        label: "配置・整合の微調整",
+        text: "あと数dBの不足です。アンテナ位置、GNDクリアランス、ケーブル長、コネクタ損失の見直しで回収できる可能性があります。",
+      };
+    }
+    if (requiredImprovement <= 8) {
+      return {
+        label: "内蔵最適化またはフレキ化",
+        text: "標準的な内蔵条件だけでは余裕が薄い領域です。筐体込みのアンテナ調整、フレキ配置、金属からの距離確保を検討します。",
+      };
+    }
+    if (requiredImprovement <= 15) {
+      return {
+        label: "外部アンテナ化を比較",
+        text: "現場損失が支配的です。外部ホイップや防水外部アンテナで放射点を金属・水・蓋材の外へ出す案を比較します。",
+      };
+    }
+    return {
+      label: "設置条件から再設計",
+      text: "アンテナ単体だけで吸収しにくい不足量です。蓋材変更、受信局追加、中継、通信方式変更も含めてリンク予算を再設計します。",
+    };
+  }, [requiredImprovement]);
+  const consultationMemo = [
+    `${uMeta.label}メーター / ${bMeta?.label ?? "カスタム"}`,
+    `${place.label}${floodOn ? " / 浸水あり" : ""}`,
+    `${fieldScenario.label}${fieldScenarioLoss ? ` +${fieldScenarioLoss}dB` : ""}`,
+    `必要改善 ${fmt(requiredImprovement, 1)}dB`,
+  ];
   const graphParams = [
     ["メーター", `${uMeta.label}`],
     ["方式", bMeta?.label ?? "カスタム"],
@@ -790,6 +903,7 @@ export default function App() {
     ["周波数", `${fmt(freq.v, 0)} MHz`],
     ["目標距離", fmtDistance(dTest.v)],
     ["目標余裕", `${fmt(targetMargin.v, 0)} dB`],
+    ["アンテナ", `${antennaConfig.label} ${fmtSigned(antennaNet)} dB`],
     ["現場条件", fieldScenario.loss ? `${fieldScenario.label} +${fieldScenario.loss} dB` : "なし"],
     ["設置", `${place.label}${floodOn ? " / 浸水あり" : ""}`],
     ["環境", env.label],
@@ -814,11 +928,14 @@ export default function App() {
   const resultText = [
     `種別: ${uMeta.label}メーター / 方式: ${bMeta?.label ?? "カスタム"} / 設置: ${place.label}${floodOn ? "（浸水あり）" : ""}`,
     `${fmt(freq.v, 0)} MHz / モデル: ${model} / 目標マージン: ${fmt(targetMargin.v, 0)} dB`,
+    `アンテナ構成: ${antennaConfig.label} / 実効補正 ${fmtSigned(antennaNet)} dB / 有効Tx利得 ${fmt(effectiveTxG)} dBi`,
     `現場シナリオ: ${fieldScenario.label}${fieldScenarioLoss ? `（+${fieldScenarioLoss} dB）` : ""}`,
     `EIRP: ${fmt(eirp)} dBm / 通常損失計: ${fmt(envLossNominal)} dB / 悲観損失計: ${fmt(envLossWorst)} dB`,
     `目標距離 ${fmtDistance(dTest.v)}: 通常マージン ${fmtSigned(mNominal)} dB / 判定用 ${fmtSigned(mJudge)} dB / 悲観 ${fmtSigned(mWorst)} dB → ${judge.label}`,
     `最大到達距離: 通常 ${fmtDistance(maxDistanceMain)} / 悲観 ${fmtDistance(maxDistanceWorst)}`,
     `偏波: Tx ${txPol} × Rx ${rxPol} / 偏波損失 ${fmt(totalPolLoss, 0)} dB`,
+    `アンテナメーカー視点: ${makerAdvice.label} / 必要改善量 ${fmt(requiredImprovement, 1)} dB`,
+    `設計相談メモ: ${consultationMemo.join(" / ")}`,
     explanation,
   ].join("\n");
   const copyOrShow = async () => {
@@ -870,6 +987,43 @@ export default function App() {
     </div>
   );
 
+  const makerBlock = (
+    <div className="guide">
+      <div className="guidePane">
+        <div className="guideTitle">STAF Antenna View</div>
+        <div className="guideMain">{antennaConfig.label}: 実効 {fmtSigned(antennaNet)} dB</div>
+        <ul className="guideList">
+          <li>有効Tx利得 {fmt(effectiveTxG)} dBi / アンテナ実装損失 {fmt(antennaConfig.implLoss, 1)} dB</li>
+          <li>{antennaConfig.lesson}</li>
+        </ul>
+      </div>
+      <div className="guidePane">
+        <div className="guideTitle">Design Gap</div>
+        <div className="guideMain" style={{ color: requiredImprovement > 0 ? C.warn : C.ok }}>
+          {makerAdvice.label}
+        </div>
+        <ul className="guideList">
+          <li>必要改善量 {fmt(requiredImprovement, 1)} dB</li>
+          <li>{makerAdvice.text}</li>
+        </ul>
+      </div>
+      <div className="guidePane">
+        <div className="guideTitle">Antenna Candidates</div>
+        <div className="guideMain">構成変更時のマージン差</div>
+        <ul className="guideList">
+          {antennaCandidates.length ? antennaCandidates.map((a) => (
+            <li key={a.key}>{a.label}: {fmtSigned(a.delta)} dB → 判定 {fmtSigned(a.mJudge)} dB</li>
+          )) : <li>現在のアンテナ構成が候補内で最も有利です。</li>}
+        </ul>
+      </div>
+      <div className="guidePane">
+        <div className="guideTitle">Consultation Memo</div>
+        <div className="guideMain">相談時に揃える条件</div>
+        <ul className="guideList">{STAF_DESIGN_GUIDE.map((x) => <li key={x}>{x}</li>)}</ul>
+      </div>
+    </div>
+  );
+
   const viewCard = (
     <div className="card">
       <div className="ct">判定グラフ — 安全域 / 注意域 / 不成立域</div>
@@ -893,7 +1047,7 @@ export default function App() {
       <style>{css}</style>
       <div className="wrap">
         <div className="head">
-          <div><div className="eyebrow">SMART METER RF LINK RISK SIMULATOR</div><h1 className="title">スマートメーター RFリンクリスク評価ツール</h1><div className="sub">損失レンジ・偏波・金属遮蔽・浸水・2波ヌルを考慮した机上評価</div></div>
+          <div><div className="eyebrow">STAF ANTENNA DESIGN VIEW</div><h1 className="title">スマートメーター RFリンク・アンテナ構成シミュレーター</h1><div className="sub">損失レンジ・偏波・金属遮蔽・浸水・2波ヌルに加え、内蔵/外部/防水アンテナ構成を比較</div></div>
           <div className="row">
             <div className="seg" onMouseEnter={() => setHelpKey("model")}><button className={model === "FS" ? "on" : ""} onClick={() => setModel("FS")}>FS</button><button className={model === "CI" ? "on" : ""} onClick={() => setModel("CI")}>CI</button><button className={model === "TWO" ? "on" : ""} onClick={() => setModel("TWO")}>2波</button></div>
             <button className="btnP btn" onClick={copyOrShow}>結果をコピー</button>
@@ -907,6 +1061,7 @@ export default function App() {
 
         {kpiBlock}
         {guideBlock}
+        {makerBlock}
 
         <div className="grid">
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -918,12 +1073,18 @@ export default function App() {
               <div className="step"><span className="stepNo">2</span>通信方式・バンド</div>
               <select className="bandSel" value={bandKey} onChange={(e) => applyBand(e.target.value)} onMouseEnter={() => setHelpKey("model")}>{BAND_GROUPS.map((g) => <optgroup key={g} label={g}>{BANDS.filter((b) => b.group === g).map((b) => <option key={b.key} value={b.key}>{b.label}</option>)}</optgroup>)}</select>
               <div className="small">周波数 {fmt(freq.v, 0)} MHz / 出力 {fmt(txP.v, 0)} dBm / 感度 {fmt(sens.v, 0)} dBm</div>
-              <div className="step"><span className="stepNo">3</span>設置場所</div>
+              <div className="step"><span className="stepNo">3</span>アンテナ構成</div>
+              <PickGrid options={ANTENNA_CONFIGS} value={antennaKey} onChange={setAntennaKey} cols={2} />
+              <div className="uNote">
+                <b>{antennaConfig.label}: 実効 {fmtSigned(antennaNet)} dB</b><br />
+                {antennaConfig.lesson}
+              </div>
+              <div className="step"><span className="stepNo">4</span>設置場所</div>
               <PickGrid options={PLACES} value={placeKey} onChange={(k) => { setPlaceKey(k); if (!k.startsWith("pit")) setFloodOn(false); setHelpKey("place"); }} cols={3} />
               {isPit && <label className="floodChk" onMouseEnter={() => setHelpKey("flood")}><input type="checkbox" checked={floodOn} onChange={(e) => setFloodOn(e.target.checked)} />ピット浸水あり（通常+{FLOOD_LOSS.nominal}dB / 悲観+{FLOOD_LOSS.max}dB）</label>}
-              <div className="step"><span className="stepNo">4</span>周辺環境</div>
+              <div className="step"><span className="stepNo">5</span>周辺環境</div>
               <PickGrid options={ENV_OPTIONS} value={envKey} onChange={(k) => { setEnvKey(k); setHelpKey("model"); }} cols={3} />
-              <div className="step"><span className="stepNo">5</span>スマートメーター現場シナリオ</div>
+              <div className="step"><span className="stepNo">6</span>スマートメーター現場シナリオ</div>
               <div className="chips" style={{ gap: 8 }}>
                 {SMART_METER_SCENARIOS.map((s) => (
                   <button
@@ -946,7 +1107,7 @@ export default function App() {
                 {fieldScenario.lesson}<br />
                 <span style={{ color: C.sub }}>{SMART_METER_SCENARIO_NOTE}</span>
               </div>
-              <div className="step"><span className="stepNo">6</span>受信局までの距離</div>
+              <div className="step"><span className="stepNo">7</span>受信局までの距離</div>
               <div className="sliderRow"><input className="slider" type="range" min="0" max="1000" value={distToSlider(dTest.v)} onChange={(e) => dTest.setV(sliderToDist(parseInt(e.target.value, 10)))} /><span className="sliderVal">{fmtDistance(dTest.v)}</span></div>
               <div className="chips" style={{ marginTop: 6 }}>{[50, 100, 300, 500, 1000, 3000].map((d) => <button key={d} className="chip" onClick={() => dTest.setV(d)}>{fmtDistance(d)}</button>)}</div>
             </div>
