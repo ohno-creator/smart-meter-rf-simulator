@@ -592,7 +592,6 @@ export default function App() {
     return () => mq.removeEventListener?.("change", fn);
   }, []);
 
-  const [mode, setMode] = useState("easy");
   const [helpKey, setHelpKey] = useState("dB");
   const [model, setModel] = useState("FS"); // FS | CI | TWO
   const [status, setStatus] = useState("");
@@ -843,9 +842,7 @@ export default function App() {
         <div className="head">
           <div><div className="eyebrow">SMART METER RF LINK RISK SIMULATOR</div><h1 className="title">スマートメーター RFリンクリスク評価ツール</h1><div className="sub">損失レンジ・偏波・金属遮蔽・浸水・2波ヌルを考慮した机上評価</div></div>
           <div className="row">
-            <div className="seg"><button className={mode === "easy" ? "on" : ""} onClick={() => setMode("easy")}>かんたん</button><button className={mode === "pro" ? "on" : ""} onClick={() => setMode("pro")}>詳細</button></div>
             <div className="seg" onMouseEnter={() => setHelpKey("model")}><button className={model === "FS" ? "on" : ""} onClick={() => setModel("FS")}>FS</button><button className={model === "CI" ? "on" : ""} onClick={() => setModel("CI")}>CI</button><button className={model === "TWO" ? "on" : ""} onClick={() => setModel("TWO")}>2波</button></div>
-            {mode === "pro" && <><button className="btn" onClick={openCSVImport}>CSV貼付</button><button className="btn" onClick={openCSVExport}>CSV出力</button></>}
             <button className="btnP btn" onClick={copyOrShow}>結果をコピー</button>
           </div>
         </div>
@@ -858,87 +855,30 @@ export default function App() {
         {kpiBlock}
         {guideBlock}
 
-        {mode === "easy" && (
-          <div className="grid">
-            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              <div className="card">
-                <div className="ct">かんたん設定</div>
-                <div className="step"><span className="stepNo">1</span>メーター種別</div>
-                <PickGrid options={UTILITIES} value={utility} onChange={applyUtility} cols={4} big />
-                <div className="uNote"><b>{uMeta.icon} {uMeta.label}メーター（{uMeta.sub}）</b><br />{uMeta.note}</div>
-                <div className="step"><span className="stepNo">2</span>通信方式・バンド</div>
-                <select className="bandSel" value={bandKey} onChange={(e) => applyBand(e.target.value)} onMouseEnter={() => setHelpKey("model")}>{BAND_GROUPS.map((g) => <optgroup key={g} label={g}>{BANDS.filter((b) => b.group === g).map((b) => <option key={b.key} value={b.key}>{b.label}</option>)}</optgroup>)}</select>
-                <div className="small">周波数 {fmt(freq.v, 0)} MHz / 出力 {fmt(txP.v, 0)} dBm / 感度 {fmt(sens.v, 0)} dBm</div>
-                <div className="step"><span className="stepNo">3</span>設置場所</div>
-                <PickGrid options={PLACES} value={placeKey} onChange={(k) => { setPlaceKey(k); if (!k.startsWith("pit")) setFloodOn(false); setHelpKey("place"); }} cols={3} />
-                {isPit && <label className="floodChk" onMouseEnter={() => setHelpKey("flood")}><input type="checkbox" checked={floodOn} onChange={(e) => setFloodOn(e.target.checked)} />ピット浸水あり（通常+{FLOOD_LOSS.nominal}dB / 悲観+{FLOOD_LOSS.max}dB）</label>}
-                <div className="step"><span className="stepNo">4</span>周辺環境</div>
-                <PickGrid options={ENV_OPTIONS} value={envKey} onChange={(k) => { setEnvKey(k); setHelpKey("model"); }} cols={3} />
-                <div className="step"><span className="stepNo">5</span>受信局までの距離</div>
-                <div className="sliderRow"><input className="slider" type="range" min="0" max="1000" value={distToSlider(dTest.v)} onChange={(e) => dTest.setV(sliderToDist(parseInt(e.target.value, 10)))} /><span className="sliderVal">{fmtDistance(dTest.v)}</span></div>
-                <div className="chips" style={{ marginTop: 6 }}>{[50, 100, 300, 500, 1000, 3000].map((d) => <button key={d} className="chip" onClick={() => dTest.setV(d)}>{fmtDistance(d)}</button>)}</div>
-              </div>
-              <div className="card"><div className="ct">結果解説</div><div className="help" style={{ minHeight: 0 }}>{explanation}</div></div>
-              <div className="card"><div className="ct">dB表記メモ</div><div className="help" style={{ minHeight: 0 }}>{HELP.dB}</div></div>
+        <div className="grid">
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div className="card">
+              <div className="ct">かんたん設定</div>
+              <div className="step"><span className="stepNo">1</span>メーター種別</div>
+              <PickGrid options={UTILITIES} value={utility} onChange={applyUtility} cols={4} big />
+              <div className="uNote"><b>{uMeta.icon} {uMeta.label}メーター（{uMeta.sub}）</b><br />{uMeta.note}</div>
+              <div className="step"><span className="stepNo">2</span>通信方式・バンド</div>
+              <select className="bandSel" value={bandKey} onChange={(e) => applyBand(e.target.value)} onMouseEnter={() => setHelpKey("model")}>{BAND_GROUPS.map((g) => <optgroup key={g} label={g}>{BANDS.filter((b) => b.group === g).map((b) => <option key={b.key} value={b.key}>{b.label}</option>)}</optgroup>)}</select>
+              <div className="small">周波数 {fmt(freq.v, 0)} MHz / 出力 {fmt(txP.v, 0)} dBm / 感度 {fmt(sens.v, 0)} dBm</div>
+              <div className="step"><span className="stepNo">3</span>設置場所</div>
+              <PickGrid options={PLACES} value={placeKey} onChange={(k) => { setPlaceKey(k); if (!k.startsWith("pit")) setFloodOn(false); setHelpKey("place"); }} cols={3} />
+              {isPit && <label className="floodChk" onMouseEnter={() => setHelpKey("flood")}><input type="checkbox" checked={floodOn} onChange={(e) => setFloodOn(e.target.checked)} />ピット浸水あり（通常+{FLOOD_LOSS.nominal}dB / 悲観+{FLOOD_LOSS.max}dB）</label>}
+              <div className="step"><span className="stepNo">4</span>周辺環境</div>
+              <PickGrid options={ENV_OPTIONS} value={envKey} onChange={(k) => { setEnvKey(k); setHelpKey("model"); }} cols={3} />
+              <div className="step"><span className="stepNo">5</span>受信局までの距離</div>
+              <div className="sliderRow"><input className="slider" type="range" min="0" max="1000" value={distToSlider(dTest.v)} onChange={(e) => dTest.setV(sliderToDist(parseInt(e.target.value, 10)))} /><span className="sliderVal">{fmtDistance(dTest.v)}</span></div>
+              <div className="chips" style={{ marginTop: 6 }}>{[50, 100, 300, 500, 1000, 3000].map((d) => <button key={d} className="chip" onClick={() => dTest.setV(d)}>{fmtDistance(d)}</button>)}</div>
             </div>
-            {viewCard}
+            <div className="card"><div className="ct">結果解説</div><div className="help" style={{ minHeight: 0 }}>{explanation}</div></div>
+            <div className="card"><div className="ct">dB表記メモ</div><div className="help" style={{ minHeight: 0 }}>{HELP.dB}</div></div>
           </div>
-        )}
-
-        {mode === "pro" && (
-          <div className="grid">
-            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              <div className="card">
-                <div className="ct">計算条件</div>
-                <div className="grp">メーター種別</div><PickGrid options={UTILITIES} value={utility} onChange={applyUtility} cols={4} />
-                <div className="grp">無線設定</div>
-                <div className="fields">
-                  <label className="field" style={{ gridColumn: "1 / -1" }}><HLabel text="通信方式・バンド" helpKey="model" setHelp={setHelpKey} /><select className="in sel" value={bandKey} onChange={(e) => applyBand(e.target.value)}>{BAND_GROUPS.map((g) => <optgroup key={g} label={g}>{BANDS.filter((b) => b.group === g).map((b) => <option key={b.key} value={b.key}>{b.label}</option>)}</optgroup>)}</select></label>
-                  <NumField label="周波数 (MHz)" helpKey="model" setHelp={setHelpKey} bind={freq.bind} />
-                  <NumField label="Tx出力 (dBm)" helpKey="dB" setHelp={setHelpKey} bind={txP.bind} />
-                  <NumField label="Tx利得 (dBi)" helpKey="dB" setHelp={setHelpKey} bind={txG.bind} />
-                  <NumField label="Rx利得 (dBi)" helpKey="dB" setHelp={setHelpKey} bind={rxG.bind} />
-                  <NumField label="受信感度 (dBm)" helpKey="dB" setHelp={setHelpKey} bind={sens.bind} />
-                  <NumField label="目標マージン (dB)" helpKey="margin" setHelp={setHelpKey} bind={targetMargin.bind} />
-                </div>
-                <div className="grp">設置・環境・偏波</div>
-                <div className="fields">
-                  <label className="field"><HLabel text="設置場所" helpKey="place" setHelp={setHelpKey} /><select className="in sel" value={placeKey} onChange={(e) => { setPlaceKey(e.target.value); if (!e.target.value.startsWith("pit")) setFloodOn(false); }}>{PLACES.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}</select></label>
-                  {isPit && <div className="field"><HLabel text="ピット浸水" helpKey="flood" setHelp={setHelpKey} /><input type="checkbox" checked={floodOn} onChange={(e) => setFloodOn(e.target.checked)} /></div>}
-                  <label className="field"><HLabel text="周辺環境" helpKey="model" setHelp={setHelpKey} /><select className="in sel" value={envKey} onChange={(e) => setEnvKey(e.target.value)}>{ENV_OPTIONS.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}</select></label>
-                  <NumField label="現場補正損失 (dB)" helpKey="dB" setHelp={setHelpKey} bind={addLoss.bind} />
-                  <label className="field"><HLabel text="Tx偏波" helpKey="pol" setHelp={setHelpKey} /><select className="in sel" value={txPol} onChange={(e) => setTxPol(e.target.value)}>{POL_OPTIONS.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}</select></label>
-                  <label className="field"><HLabel text="Rx偏波" helpKey="pol" setHelp={setHelpKey} /><select className="in sel" value={rxPol} onChange={(e) => setRxPol(e.target.value)}>{POL_OPTIONS.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}</select></label>
-                  <NumField label="偏波追加補正 (dB)" helpKey="pol" setHelp={setHelpKey} bind={polExtraLoss.bind} note={`自動 ${autoPolLoss} dB`} />
-                  <NumField label="人体/近接損失 (dB)" helpKey="dB" setHelp={setHelpKey} bind={bodyLoss.bind} />
-                </div>
-                <div className="grp">評価・高さ・実装損失</div>
-                <div className="fields">
-                  <NumField label="目標距離 (m)" helpKey="margin" setHelp={setHelpKey} bind={dTest.bind} />
-                  <NumField label="表示距離上限 (km)" helpKey="margin" setHelp={setHelpKey} bind={graphMaxKm.bind} />
-                  {model === "TWO" && <NumField label="ヌル対策幅 (±%)" helpKey="model" setHelp={setHelpKey} bind={nullPct.bind} />}
-                  <NumField label="メーター高さ (m)" helpKey="model" setHelp={setHelpKey} bind={ht.bind} />
-                  <NumField label="受信局高さ (m)" helpKey="model" setHelp={setHelpKey} bind={hr.bind} />
-                  <NumField label="Txケーブル (dB)" helpKey="dB" setHelp={setHelpKey} bind={txCable.bind} />
-                  <NumField label="Rxケーブル (dB)" helpKey="dB" setHelp={setHelpKey} bind={rxCable.bind} />
-                  <NumField label="Tx VSWR (dB)" helpKey="dB" setHelp={setHelpKey} bind={txVswr.bind} />
-                  <NumField label="Rx VSWR (dB)" helpKey="dB" setHelp={setHelpKey} bind={rxVswr.bind} />
-                  <NumField label="Tx効率損失 (dB)" helpKey="dB" setHelp={setHelpKey} bind={txEff.bind} />
-                  <NumField label="Rx効率損失 (dB)" helpKey="dB" setHelp={setHelpKey} bind={rxEff.bind} />
-                </div>
-                <div className="note">推奨現場補正損失: <b>{fmt(recAddLoss)} dB</b><button className="btn" style={{ marginLeft: 8 }} onClick={applyRecAdd} disabled={!Number.isFinite(recAddLoss)}>現場補正へ加算</button><div className="small">予測RSSI−実測RSSI中央値の中央値です。</div></div>
-              </div>
-              <div className="card"><div className="ct">ヘルプ</div><div className="help">{HELP[helpKey] || HELP.dB}</div></div>
-              <div className="card"><div className="ct">結果解説</div><div className="help" style={{ minHeight: 0 }}>{explanation}</div></div>
-              <div className="card"><div className="ct">損失内訳ランキング</div><div className="help" style={{ minHeight: 0 }}>{lossBreakdown.map((x, i) => `${i + 1}. ${x.label}: ${fmtLoss(x.value)}`).join("\n")}</div></div>
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              {viewCard}
-              <div className="card"><div className="ct">現地ログ入力（RSSI実測値）</div><div className="row" style={{ marginBottom: 8 }}><button className="btn" onClick={sortRows}>距離順</button><button className="btn" onClick={addRow}>行追加</button><button className="btn" onClick={clearLogs}>RSSIクリア</button></div><div className="tableWrap"><table><thead><tr><th>Point</th><th>距離(m)</th>{[1, 2, 3, 4, 5].map((i) => <th key={i}>RSSI{i}</th>)}<th>中央値</th><th>予測</th><th>推定損失</th></tr></thead><tbody>{tableData.map((r, idx) => <tr key={idx}><td><input className="tin tinP" value={r.point} onChange={(e) => updateRow(idx, "point", e.target.value)} /></td><td><input className="tin tinD" value={r.d} type="number" min="1" onChange={(e) => { const v = parseFloat(e.target.value); if (Number.isFinite(v) && v > 0) updateRow(idx, "d", v); }} /></td>{[0, 1, 2, 3, 4].map((j) => <td key={j}><RssiCell value={r.rssi[j]} onCommit={(v) => updateRssi(idx, j, v)} /></td>)}<td>{fmt(r.median)}</td><td>{fmt(r.pred)}</td><td style={{ color: Number.isFinite(r.estAdd) ? (r.estAdd > 20 ? C.ng : r.estAdd > 8 ? C.warn : C.ok) : C.sub, fontWeight: 700 }}>{fmt(r.estAdd)}</td></tr>)}</tbody></table></div></div>
-              <div className="card"><div className="ct">理論式</div><pre>{`FSPL(dB) = 32.44 + 20log10(f_MHz) + 20log10(d_km)\nCI(dB) = FSPL(1m) + 10n log10(d_m) + シナリオ損失\nEIRP = TxP + TxG − TxLoss\nPrx = EIRP + RxG − RxLoss − PathLoss\nMargin = Prx − Sens\n損失・減衰量は正のdBで表記。受信電力PrxはdBmで低下。`}</pre></div>
-            </div>
-          </div>
-        )}
+          {viewCard}
+        </div>
 
         <div className="footer">本ツールは机上概算用です。通信性能・到達距離を保証するものではありません。プリセット値は代表的な想定例であり、実機仕様・法令・ARIB規格・現地RSSIログに基づく確認が必要です。</div>
       </div>
