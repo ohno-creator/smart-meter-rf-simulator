@@ -49,6 +49,27 @@ export const powerRatioText = (db) => {
   return "ほぼ同等";
 };
 
+/** お問い合わせ（スタッフ株式会社） */
+export const CONTACT_URL = "https://www.staf.co.jp/contact.html";
+
+/** URL共有: 現在のタブ+条件をクエリにした共有URLを作る */
+export const buildShareUrl = (tab, params = {}) => {
+  const q = new URLSearchParams({ tab, ...params });
+  return `${location.origin}${location.pathname}?${q.toString()}`;
+};
+export const readUrlParams = () => new URLSearchParams(location.search);
+
+/** クリップボードコピー（失敗時はprompt表示） */
+export async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    window.prompt("コピーしてください:", text);
+    return false;
+  }
+}
+
 /** 決定論的乱数（マップの家配置を再現可能に） */
 export function mulberry32(seed) {
   let a = seed >>> 0;

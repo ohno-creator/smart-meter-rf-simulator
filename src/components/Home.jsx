@@ -1,5 +1,5 @@
 import React from "react";
-import { C } from "../theme.js";
+import { C, CONTACT_URL } from "../theme.js";
 import { INDUSTRY_STATS, INDUSTRY_ISSUES } from "../data/industry.js";
 import { Card, NoviceNote } from "./common.jsx";
 
@@ -8,6 +8,7 @@ const TAB_GUIDE = [
   { key: "story", icon: "📖", title: "課題と解決", desc: "電気・ガス・水道それぞれの現場課題→問題→解決策をストーリーで理解", who: "事業者・企画の方に" },
   { key: "pit", icon: "🚰", title: "水道ピット研究室", desc: "日本の量水器ボックス（蓋材・深さ・浸水）を模擬した断面シミュレーション", who: "水道スマメ検討者に" },
   { key: "lab", icon: "🧪", title: "実験ラボ", desc: "講演で行った実機実験（-6dB/-10dB/-14dB）をインタラクティブに再現", who: "講演を聴いた方に" },
+  { key: "research", icon: "🔬", title: "最新研究", desc: "アンテナの観点で最新の研究からわかってきたことと、実務への示唆", who: "技術トレンド把握に" },
   { key: "pro", icon: "📐", title: "プロモード", desc: "リンクバジェット・伝搬モデル・偏波・実測RSSI照合までの詳細評価", who: "無線設計者に" },
 ];
 
@@ -73,6 +74,18 @@ export default function Home({ onNavigate }) {
           ))}
         </div>
       </Card>
+
+      <div className="card" style={{ background: "linear-gradient(135deg,#F2F8F4,#EAF4FB)", border: `1.5px solid ${C.cyan}` }}>
+        <div className="ct">アンテナ設計のご相談</div>
+        <p className="para">
+          「カタログでは良いはずなのに飛ばない」「ピット・金属盤・PSの中からつながらない」「電池寿命と通信品質を両立したい」——
+          そんなスマートメーター・IoT機器のアンテナ課題は、<b>基板設計の段階</b>からご相談いただくのが最も効果的です。
+          試作段階のOTA測定、基板GND・整合の設計支援、設置環境込みの実測評価まで一体でサポートします。
+        </p>
+        <a className="btn btnP" style={{ textDecoration: "none", display: "inline-block", fontSize: 14, padding: "10px 18px" }} href={CONTACT_URL} target="_blank" rel="noopener">
+          📩 スタッフ株式会社に問い合わせる（無料相談）
+        </a>
+      </div>
 
       <div className="aboutBox">
         <b>本シミュレーターについて</b><br />

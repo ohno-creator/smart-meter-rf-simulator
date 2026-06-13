@@ -1,10 +1,11 @@
 import React, { useMemo, useState } from "react";
-import { C } from "./theme.js";
+import { C, CONTACT_URL, readUrlParams } from "./theme.js";
 import Home from "./components/Home.jsx";
 import CoverageMap from "./components/CoverageMap.jsx";
 import StoryMode from "./components/StoryMode.jsx";
 import PitLab from "./components/PitLab.jsx";
 import ExperimentLab from "./components/ExperimentLab.jsx";
+import ResearchLab from "./components/ResearchLab.jsx";
 import ProSimulator from "./components/ProSimulator.jsx";
 
 const TABS = [
@@ -13,11 +14,15 @@ const TABS = [
   { key: "story", icon: "📖", label: "課題と解決" },
   { key: "pit", icon: "🚰", label: "水道ピット研究室" },
   { key: "lab", icon: "🧪", label: "実験ラボ" },
+  { key: "research", icon: "🔬", label: "最新研究" },
   { key: "pro", icon: "📐", label: "プロモード" },
 ];
 
 export default function App() {
-  const [tab, setTab] = useState("home");
+  const [tab, setTab] = useState(() => {
+    const t = readUrlParams().get("tab");
+    return TABS.some((x) => x.key === t) ? t : "home";
+  });
   const go = (k) => { setTab(k); window.scrollTo({ top: 0, behavior: "smooth" }); };
 
   const css = useMemo(() => `
@@ -88,7 +93,7 @@ export default function App() {
     .mapSub{font-size:11px;color:${C.sub};margin-left:7px}
     .mapStat{font-size:12px}
     .mapStat b{font-size:16px;font-family:ui-monospace,monospace}
-    .mapKpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin-top:8px}
+    .mapKpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(92px,1fr));gap:6px;margin-top:8px}
     .mapKpis>div{border-left:3px solid ${C.line};padding:1px 0 1px 7px}
     .mapKpis span{display:block;font-size:10px;color:${C.sub}}
     .mapKpis b{font-size:13px;font-family:ui-monospace,monospace}
@@ -185,7 +190,10 @@ export default function App() {
             <h1 className="shellTitle">スマートメーター 電波とアンテナ シミュレーター</h1>
             <div className="shellSub">アンテナの静特性が「設置できるエリア」を決める——電気・ガス・水道の現場を体感する</div>
           </div>
-          <div className="small" style={{ textAlign: "right" }}>講演連動コンテンツ</div>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+            <div className="small">講演連動コンテンツ</div>
+            <a className="btn btnP" style={{ textDecoration: "none" }} href={CONTACT_URL} target="_blank" rel="noopener">📩 アンテナのご相談・お問い合わせ</a>
+          </div>
         </header>
 
         <nav className="tabsNav" aria-label="モード切替">
@@ -202,12 +210,14 @@ export default function App() {
           {tab === "story" && <StoryMode />}
           {tab === "pit" && <PitLab />}
           {tab === "lab" && <ExperimentLab />}
+          {tab === "research" && <ResearchLab />}
           {tab === "pro" && <ProSimulator />}
         </main>
 
         <footer className="shellFooter">
           本ツールは机上概算用であり、通信性能・到達距離を保証するものではありません。数値は公開情報・文献値・講演実測に基づく代表値で、実機仕様・法令・ARIB規格・現地測定に基づく確認が必要です。
           ／ アンテナ・無線実装のご相談は「基板設計」の段階から——スタッフ株式会社（新横浜）
+          ／ <a href={CONTACT_URL} target="_blank" rel="noopener" style={{ color: C.blue, fontWeight: 700 }}>スマートメーター・IoT機器のアンテナ設計のお問い合わせはこちら</a>
         </footer>
       </div>
     </div>

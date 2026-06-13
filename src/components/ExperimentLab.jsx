@@ -2,6 +2,7 @@ import React, { useMemo, useState } from "react";
 import { C, fmt, fmtSigned, round, clamp } from "../theme.js";
 import { LECTURE_EXPERIMENTS } from "../data/core.js";
 import { Card, NoviceNote, PickGrid, Term } from "./common.jsx";
+import { Donut3D } from "./charts.jsx";
 
 /** RSSI測定器風の表示 */
 function RssiMeter({ rssi, baseline = -55 }) {
@@ -125,36 +126,8 @@ function OrientationSim() {
     <Card title="③ 「基本は縦置き」——アンテナの向きと電波の出方">
       <div className="expGrid">
         <div style={{ textAlign: "center" }}>
-          <svg viewBox="0 0 320 190" style={{ width: "100%", maxWidth: 360 }} aria-label="放射パターン">
-            {/* 地面 */}
-            <line x1="10" y1="160" x2="310" y2="160" stroke={C.ink} strokeWidth="2" />
-            {/* アンテナ */}
-            {horizontal ? (
-              <rect x="125" y="86" width="70" height="12" rx="4" fill="#C77B3A" stroke="#8A4F1D" strokeWidth="2" />
-            ) : (
-              <rect x="154" y="56" width="12" height="70" rx="4" fill="#C77B3A" stroke="#8A4F1D" strokeWidth="2" />
-            )}
-            {/* ドーナツパターン（断面）: 縦置き→水平に強い8の字、横置き→上下に8の字 */}
-            {horizontal ? (
-              <g opacity="0.85">
-                <ellipse cx="160" cy="52" rx="26" ry="38" fill="none" stroke={C.blue} strokeWidth="2.4" />
-                <ellipse cx="160" cy="132" rx="26" ry="38" fill="none" stroke={C.blue} strokeWidth="2.4" />
-                <text x="262" y="95" fontSize="11" fill={C.ng} fontWeight="700" textAnchor="middle">受信局方向は弱い!</text>
-                <path d="M 200 92 l 40 0" stroke={C.ng} strokeWidth="2" strokeDasharray="4 4" />
-              </g>
-            ) : (
-              <g opacity="0.85">
-                <ellipse cx="104" cy="91" rx="44" ry="24" fill="none" stroke={C.blue} strokeWidth="2.4" />
-                <ellipse cx="216" cy="91" rx="44" ry="24" fill="none" stroke={C.blue} strokeWidth="2.4" />
-                <text x="268" y="80" fontSize="11" fill={C.ok} fontWeight="700" textAnchor="middle">水平方向に強い</text>
-              </g>
-            )}
-            {/* 受信局 */}
-            <line x1="290" y1="160" x2="290" y2="110" stroke="#6B5B45" strokeWidth="3" />
-            <circle cx="290" cy="106" r="3" fill={C.ink} />
-            <text x="290" y="178" textAnchor="middle" fontSize="10" fill={C.sub}>受信局</text>
-          </svg>
-          <div className="segRow" style={{ justifyContent: "center" }}>
+          <Donut3D horizontal={horizontal} />
+          <div className="segRow" style={{ justifyContent: "center", marginTop: 8 }}>
             <button className={`chip ${!horizontal ? "chipOn" : ""}`} onClick={() => setHorizontal(false)}>縦置き（推奨）</button>
             <button className={`chip ${horizontal ? "chipOn" : ""}`} onClick={() => setHorizontal(true)}>横置き（倒す）</button>
           </div>

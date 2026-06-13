@@ -86,3 +86,20 @@ export const areaRatio = (deltaDb, n = 3) => 10 ** ((-2 * clamp(deltaDb, 0)) / (
 
 /** 電力比（-6dB → 0.25） */
 export const powerRatio = (deltaDb) => 10 ** (-clamp(deltaDb, 0) / 10);
+
+/** =====================================================================
+ *  電池寿命への影響（簡易モデル）
+ *  レイリーフェージング下のアウテージ確率: PER(M) = 1 - exp(-10^(-M/10))
+ *  期待送信回数 = 1/(1-PER)。通信分の電池消費は送信回数に比例すると仮定。
+ *  ※ スリープ電流等は含まない「通信分のみの相対比較」。静止端末でも
+ *    周囲の車・人・扉開閉・降雨で実効的なフェージングは生じる。
+ *  ===================================================================== */
+export const perFromMargin = (marginDb) => clamp(1 - Math.exp(-(10 ** (-marginDb / 10))), 0, 0.999);
+
+/** 期待送信回数（再送込み、上限あり） */
+export const expectedTxCount = (marginDb, maxRetry = 8) =>
+  Math.min(1 / (1 - perFromMargin(marginDb)), maxRetry + 1);
+
+/** 基準マージン(20dB)比の通信分電池消費倍率 */
+export const batteryDrainFactor = (marginDb, refMarginDb = 20) =>
+  expectedTxCount(marginDb) / expectedTxCount(refMarginDb);

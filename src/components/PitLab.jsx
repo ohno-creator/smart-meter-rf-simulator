@@ -1,9 +1,10 @@
 import React, { useMemo, useState } from "react";
-import { C, clamp, fmt, fmtSigned, fmtDistance } from "../theme.js";
-import { marginAt } from "../engine/rf.js";
+import { C, clamp, fmt, fmtSigned, fmtDistance, CONTACT_URL, buildShareUrl, copyText, readUrlParams } from "../theme.js";
+import { marginAt, perFromMargin, batteryDrainFactor } from "../engine/rf.js";
 import { BANDS, bandOf, ENVS, envOf } from "../data/core.js";
 import { LIDS, lidOf, BOXES, boxOf, ANT_POS, antPosOf, READOUTS, readoutOf, floodLoss, depthLoss, PIT_SOLUTIONS } from "../data/pit.js";
 import { Card, PickGrid, NoviceNote, Term, JudgeBadge, LossBar, useReducedMotion } from "./common.jsx";
+import { PerCurve } from "./charts.jsx";
 
 /** 状態→リンク評価 */
 function evalPit(s) {
@@ -158,21 +159,64 @@ function PitCrossSection({ s, ev, reduced }) {
   );
 }
 
+const DEFAULT_STATE = {
+  bandKey: "lpwa920",
+  envKey: "suburb",
+  lidKey: "iron",
+  boxKey: "concrete_box",
+  antPosKey: "meter",
+  depthCm: 45,
+  waterPct: 0,
+  readoutKey: "fixed",
+  antNetDb: -2,
+};
+
+/** URLクエリから初期状態を復元（共有リンク対応） */
+function initialState() {
+  const q = readUrlParams();
+  if (q.get("tab") !== "pit") return DEFAULT_STATE;
+  const s = { ...DEFAULT_STATE };
+  const pick = (key, stateKey, valid) => {
+    const v = q.get(key);
+    if (v != null && (!valid || valid(v))) s[stateKey] = v;
+  };
+  pick("lid", "lidKey", (v) => LIDS.some((x) => x.key === v));
+  pick("box", "boxKey", (v) => BOXES.some((x) => x.key === v));
+  pick("pos", "antPosKey", (v) => ANT_POS.some((x) => x.key === v));
+  pick("ro", "readoutKey", (v) => READOUTS.some((x) => x.key === v));
+  pick("band", "bandKey", (v) => BANDS.some((x) => x.key === v));
+  pick("env", "envKey", (v) => ENVS.some((x) => x.key === v));
+  const d = parseInt(q.get("depth"), 10);
+  if (Number.isFinite(d)) s.depthCm = clamp(d, 20, 100);
+  const w = parseInt(q.get("water"), 10);
+  if (Number.isFinite(w)) s.waterPct = clamp(w, 0, 100);
+  return s;
+}
+
 export default function PitLab() {
   const reduced = useReducedMotion();
-  const [state, setState] = useState({
-    bandKey: "lpwa920",
-    envKey: "suburb",
-    lidKey: "iron",
-    boxKey: "concrete_box",
-    antPosKey: "meter",
-    depthCm: 45,
-    waterPct: 0,
-    readoutKey: "fixed",
-    antNetDb: -2,
-  });
+  const [state, setState] = useState(initialState);
+  const [toast, setToast] = useState("");
+  const flash = (msg) => { setToast(msg); setTimeout(() => setToast(""), 2200); };
   const set = (patch) => setState((s) => ({ ...s, ...patch }));
   const ev = useMemo(() => evalPit(state), [state]);
+  const per = perFromMargin(ev.m);
+  const drain = batteryDrainFactor(ev.m);
+
+  const shareUrl = () => buildShareUrl("pit", {
+    lid: state.lidKey, box: state.boxKey, pos: state.antPosKey, ro: state.readoutKey,
+    band: state.bandKey, env: state.envKey, depth: state.depthCm, water: state.waterPct,
+  });
+  const reportText = () => [
+    "【水道ピット シミュレーション結果】",
+    `蓋材: ${ev.lid.label} / 枡: ${ev.box.label} / 深さ: ${state.depthCm}cm / 水位: ${state.waterPct}%`,
+    `アンテナ位置: ${ev.pos.label} / 方式: ${ev.band.label} / 検針: ${ev.ro.label}（${fmtDistance(ev.ro.dM)}） / 環境: ${ev.env.label}`,
+    `リンクマージン: ${fmtSigned(ev.m, 1)} dB → 判定: ${LEVEL_TEXT[ev.level].label}`,
+    `ピット起因の損失: 蓋${fmt(ev.lidLoss, 0)} + 枡${fmt(ev.boxLoss, 0)} + 深さ${fmt(ev.dLoss, 0)} + 浸水${fmt(ev.fl.loss, 0)} = ${fmt(ev.lidLoss + ev.boxLoss + ev.dLoss + ev.fl.loss, 0)} dB`,
+    `推定パケット誤り率: 約${fmt(per * 100, per < 0.1 ? 1 : 0)}% / 通信分の電池消費: 余裕20dB時の約${fmt(drain, 1)}倍`,
+    `共有リンク: ${shareUrl()}`,
+    "※机上概算（簡易モデル）。実機・現地での検証が必要です。",
+  ].join("\n");
   const lt = LEVEL_TEXT[ev.level];
   const judgeColor = { ok: C.ok, warn: C.warn, ng: C.ng, bad: C.bad }[ev.level];
 
@@ -248,12 +292,19 @@ export default function PitLab() {
               <JudgeBadge level={ev.level === "bad" ? "bad" : ev.level} label={lt.label} />
             </div>
             <PitCrossSection s={state} ev={ev} reduced={reduced} />
-            <div className="kpis" style={{ gridTemplateColumns: "repeat(3,minmax(0,1fr))", marginTop: 10 }}>
+            <div className="kpis" style={{ gridTemplateColumns: "repeat(4,minmax(0,1fr))", marginTop: 10 }}>
               <div className="kpi"><div className="kpik">リンクマージン</div><div className="kpiv" style={{ color: judgeColor }}>{fmtSigned(ev.m, 1)}<span className="unit">dB</span></div><div className="small">{lt.desc}</div></div>
               <div className="kpi"><div className="kpik">ピット起因の損失合計</div><div className="kpiv">{fmt(ev.lidLoss + ev.boxLoss + ev.dLoss + ev.fl.loss, 0)}<span className="unit">dB</span></div><div className="small">蓋+枡+深さ+浸水</div></div>
-              <div className="kpi"><div className="kpik">通信方式 / 検針</div><div className="kpiv" style={{ fontSize: 15 }}>{ev.band.short}</div><div className="small">{ev.ro.label}・{fmtDistance(ev.ro.dM)}</div></div>
+              <div className="kpi"><div className="kpik">推定パケット誤り率</div><div className="kpiv" style={{ color: per > 0.3 ? C.ng : per > 0.1 ? C.warn : C.ok }}>{fmt(per * 100, per < 0.1 ? 1 : 0)}<span className="unit">%</span></div><div className="small">見通しなし（最悪側）仮定の簡易推定</div></div>
+              <div className="kpi"><div className="kpik">電池への影響（通信分）</div><div className="kpiv" style={{ color: drain > 2 ? C.ng : drain > 1.3 ? C.warn : C.ok }}>×{fmt(drain, 1)}</div><div className="small">余裕20dB時比の再送込み消費。10年電池に直結</div></div>
+            </div>
+            <div className="row" style={{ marginTop: 10 }}>
+              <button className="btn" onClick={async () => { await copyText(shareUrl()); flash("この条件の共有リンクをコピーしました"); }}>🔗 条件を共有リンクに</button>
+              <button className="btn" onClick={async () => { await copyText(reportText()); flash("結果レポートをコピーしました"); }}>📋 結果レポートをコピー</button>
             </div>
             <LossBar items={lossItems} totalLabel={`合計 ${fmt(lossItems.reduce((s, x) => s + x.value, 0), 0)}dB`} />
+            <div className="ct" style={{ margin: "12px 0 4px" }}>マージンと再送・電池の関係</div>
+            <PerCurve marginDb={ev.m} />
             {(ev.lid.outage && ev.pos.lidApplies) && (
               <div className="uNote" style={{ borderLeftColor: C.ng }}>
                 ⚠ <b>金属蓋の中からの通信は「dB計算」を超えるリスクがあります。</b>蓋の隙間・周囲の土の状態で実測がばらつき、机上で「ギリギリ通る」計算でも現場では不通が出ます。講演の推奨どおり、下限より10〜20dBの余裕を確保するか、アンテナを蓋の外に出す設計を検討してください。
@@ -285,10 +336,14 @@ export default function PitLab() {
               <b>🏭 アンテナメーカー（スタッフ社）にできること</b><br />
               ピット内は「アンテナ単体の性能」より「<b>蓋・水・金属込みでどう振る舞うか</b>」が支配的です。
               筐体・蓋材込みのアンテナ設計（共振の事前調整）、防水構造の外部アンテナ、試作段階のOTA測定による実装悪化の見える化、低損失ケーブル（1702-013A: 10mで約-3dB）による分離設置まで、基板設計の段階からサポートできます。
+              <div style={{ marginTop: 8 }}>
+                <a className="btn btnP" style={{ textDecoration: "none", display: "inline-block" }} href={CONTACT_URL} target="_blank" rel="noopener">水道スマートメーターのアンテナ設計を相談する →</a>
+              </div>
             </div>
           </Card>
         </div>
       </div>
+      {toast ? <div style={{ position: "fixed", right: 14, bottom: 14, background: "#102330", color: "#D8E6EE", borderRadius: 12, padding: "10px 14px", fontSize: 12, zIndex: 50 }}>{toast}</div> : null}
     </div>
   );
 }

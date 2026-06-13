@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
-import { C, clamp, fmt, fmtSigned, fmtDistance, fmtArea, mulberry32, powerRatioText, round } from "../theme.js";
-import { marginAt, radiusFor } from "../engine/rf.js";
+import { C, clamp, fmt, fmtSigned, fmtDistance, fmtArea, mulberry32, powerRatioText, round, CONTACT_URL, buildShareUrl, copyText, readUrlParams } from "../theme.js";
+import { marginAt, radiusFor, batteryDrainFactor } from "../engine/rf.js";
 import { BANDS, ENVS, SITES, ANT_STATES, bandOf, envOf, siteOf, antStateOf } from "../data/core.js";
 import { Card, PickGrid, NoviceNote, Term, useReducedMotion } from "./common.jsx";
 
@@ -13,8 +13,8 @@ function makeTown(seed = 42) {
     // 一様配置 + 端を少し避ける
     const x = (rng() * 2 - 1) * 0.94;
     const y = (rng() * 2 - 1) * 0.94;
-    // 疑似ガウス（シャドウイング用、平均0・±1程度）
-    const u = (rng() + rng() + rng() - 1.5) / 1.2;
+    // 疑似ガウス（シャドウイング用、平均0・標準偏差1に正規化）
+    const u = (rng() + rng() + rng() - 1.5) / 0.5;
     if (Math.hypot(x, y) < 0.045) continue; // 受信局の真上は除外
     houses.push({ x, y, u });
   }
@@ -62,7 +62,7 @@ function TownMap({ title, sub, conf, worldM, sigma, target, prop, selected, onSe
     () =>
       TOWN.map((h, i) => {
         const dM = Math.hypot(h.x, h.y) * mPerUnit;
-        const m = marginAt(dM, conf.link, prop) + h.u * sigma * 0.7;
+        const m = marginAt(dM, conf.link, prop) + h.u * sigma;
         const status = m >= target ? "ok" : m >= 0 ? "warn" : "ng";
         return { ...h, i, dM, m, status };
       }),
@@ -72,6 +72,12 @@ function TownMap({ title, sub, conf, worldM, sigma, target, prop, selected, onSe
     const c = { ok: 0, warn: 0, ng: 0 };
     houses.forEach((h) => c[h.status]++);
     return c;
+  }, [houses]);
+  // 通信可能な家の平均電池消費倍率（マージン低下→再送増→電池消費増、余裕20dB時比）
+  const edgeDrain = useMemo(() => {
+    const reachable = houses.filter((h) => h.m > 0);
+    if (!reachable.length) return NaN;
+    return reachable.reduce((s, h) => s + batteryDrainFactor(h.m), 0) / reachable.length;
   }, [houses]);
 
   const col = { ok: C.ok, warn: C.warn, ng: C.ng };
@@ -135,22 +141,34 @@ function TownMap({ title, sub, conf, worldM, sigma, target, prop, selected, onSe
         <div><span>限界半径(余裕0)</span><b style={{ color: C.warn }}>{fmtDistance(conf.rEdge)}</b></div>
         <div><span>安定エリア面積</span><b>{fmtArea(Math.PI * conf.rStable ** 2)}</b></div>
         <div><span>アンテナ実効</span><b style={{ color: conf.netDb < -3 ? C.ng : C.ink }}>{fmtSigned(conf.netDb, 1)} dB</b></div>
+        <div><span>電池消費(圏内平均)</span><b style={{ color: edgeDrain > 2 ? C.ng : edgeDrain > 1.3 ? C.warn : C.ok }}>×{fmt(edgeDrain, 2)}</b></div>
       </div>
     </div>
   );
 }
 
+/** URLクエリから初期値（共有リンク対応） */
+function initFromUrl(key, fallback, valid) {
+  const q = readUrlParams();
+  if (q.get("tab") !== "map") return fallback;
+  const v = q.get(key);
+  return v != null && (!valid || valid(v)) ? v : fallback;
+}
+
 export default function CoverageMap() {
   const reduced = useReducedMotion();
-  const [bandKey, setBandKey] = useState("wisun");
-  const [envKey, setEnvKey] = useState("suburb");
-  const [siteKey, setSiteKey] = useState("wall");
-  const [antA, setAntA] = useState("catalog");
-  const [antB, setAntB] = useState("sandwich");
+  const antKeys = [...ANT_STATES.map((a) => a.key), "custom"];
+  const [bandKey, setBandKey] = useState(() => initFromUrl("band", "wisun", (v) => BANDS.some((b) => b.key === v)));
+  const [envKey, setEnvKey] = useState(() => initFromUrl("env", "suburb", (v) => ENVS.some((e) => e.key === v)));
+  const [siteKey, setSiteKey] = useState(() => initFromUrl("site", "wall", (v) => SITES.some((s) => s.key === v)));
+  const [antA, setAntA] = useState(() => initFromUrl("a", "catalog", (v) => antKeys.includes(v)));
+  const [antB, setAntB] = useState(() => initFromUrl("b", "sandwich", (v) => antKeys.includes(v)));
   const [customDbA, setCustomDbA] = useState(5);
   const [customDbB, setCustomDbB] = useState(5);
-  const [target, setTarget] = useState(10);
+  const [target, setTarget] = useState(() => parseInt(initFromUrl("tgt", "10", (v) => ["6", "10", "15", "20"].includes(v)), 10));
   const [selected, setSelected] = useState(null);
+  const [toast, setToast] = useState("");
+  const flash = (msg) => { setToast(msg); setTimeout(() => setToast(""), 2200); };
 
   const band = bandOf(bandKey);
   const env = envOf(envKey);
@@ -170,18 +188,61 @@ export default function CoverageMap() {
   const confA = useConfigEval(antA, customDbA, base, prop, target);
   const confB = useConfigEval(antB, customDbB, base, prop, target);
 
-  // 表示ワールドサイズは基準構成Aの安定半径に合わせる
-  const worldM = clamp(Math.max(confA.rStable, confB.rStable) * 2.6, 60, 40000);
+  // 町の縮尺は固定（A/B共通）。アンテナを変えても地図は動かず、円と色だけが変わる
+  const TOWN_SCALES = [
+    { key: "300", m: 300, label: "300m四方" },
+    { key: "600", m: 600, label: "600m四方" },
+    { key: "1200", m: 1200, label: "1.2km四方" },
+    { key: "2500", m: 2500, label: "2.5km四方" },
+    { key: "5000", m: 5000, label: "5km四方" },
+    { key: "12000", m: 12000, label: "12km四方" },
+  ];
+  const ENV_DEFAULT_SCALE = { los: "5000", suburb: "1200", urban: "1200", dense: "600" };
+  const [scaleKey, setScaleKey] = useState(() => initFromUrl("scale", "auto", (v) => v === "auto" || TOWN_SCALES.some((s) => s.key === v)));
+  const worldM = scaleKey === "auto"
+    ? (TOWN_SCALES.find((s) => s.key === ENV_DEFAULT_SCALE[envKey]) || TOWN_SCALES[2]).m
+    : (TOWN_SCALES.find((s) => s.key === scaleKey) || TOWN_SCALES[2]).m;
+  // 縮尺ガイダンス: 両構成とも全滅/全カバーなら縮尺変更を促す
+  const rMax = Math.max(confA.rStable, confB.rStable);
+  const scaleHint =
+    rMax < worldM * 0.04 ? "両構成とも圏外がほとんどです。縮尺を小さく（拡大）すると差が見えます" :
+    Math.min(confA.rStable, confB.rStable) > worldM * 0.75 ? "両構成とも町全体をカバーしています。縮尺を大きく（広域）にすると差が見えます" : "";
   const deltaDb = confA.netDb - confB.netDb;
   const rRatio = confA.rStable > 0 ? confB.rStable / confA.rStable : 0;
   const aRatio = rRatio * rRatio;
+
+  // レポート・比較文用のサマリ（家ごとの判定と電池消費）
+  const summarize = (conf) => {
+    const mPerUnit = worldM / 2;
+    let ok = 0, drainSum = 0, reach = 0;
+    for (const h of TOWN) {
+      const m = marginAt(Math.hypot(h.x, h.y) * mPerUnit, conf.link, prop) + h.u * env.sigma;
+      if (m >= target) ok++;
+      if (m > 0) { reach++; drainSum += batteryDrainFactor(m); }
+    }
+    return { ok, total: TOWN.length, drain: reach ? drainSum / reach : NaN };
+  };
+  const sumA = useMemo(() => summarize(confA), [confA, worldM, prop, env.sigma, target]);
+  const sumB = useMemo(() => summarize(confB), [confB, worldM, prop, env.sigma, target]);
+  const gwMultiplier = aRatio > 0.0005 ? 1 / aRatio : Infinity;
+
+  const shareUrl = () => buildShareUrl("map", { band: bandKey, env: envKey, site: siteKey, a: antA, b: antB, tgt: target, scale: scaleKey });
+  const reportText = () => [
+    "【通信エリアマップ シミュレーション結果】",
+    `方式: ${band.label} / 環境: ${env.label}（n=${env.n}） / 設置: ${site.label} / 目標マージン: ${target}dB`,
+    `構成A（${antStateOf(antA).label} ${fmtSigned(confA.netDb, 1)}dB）: 安定半径 ${fmtDistance(confA.rStable)} / 設置可能 ${sumA.ok}/${sumA.total}軒（${Math.round((100 * sumA.ok) / sumA.total)}%） / 電池消費 ×${fmt(sumA.drain, 2)}`,
+    `構成B（${antStateOf(antB).label} ${fmtSigned(confB.netDb, 1)}dB）: 安定半径 ${fmtDistance(confB.rStable)} / 設置可能 ${sumB.ok}/${sumB.total}軒（${Math.round((100 * sumB.ok) / sumB.total)}%） / 電池消費 ×${fmt(sumB.drain, 2)}`,
+    deltaDb > 0 ? `実装差 ${fmt(deltaDb, 1)}dB → 通信半径 約${round(rRatio * 100, 0)}% / カバー面積 約${round(aRatio * 100, 0)}% / 同等カバーに必要な受信局 約${Number.isFinite(gwMultiplier) ? round(gwMultiplier, 1) : "—"}倍` : "",
+    `共有リンク: ${shareUrl()}`,
+    "※机上概算（CIモデル+シャドウイング）。実環境での検証が必要です。",
+  ].filter(Boolean).join("\n");
 
   const selHouse = selected != null ? TOWN[selected] : null;
   const selInfo = useMemo(() => {
     if (!selHouse) return null;
     const dM = Math.hypot(selHouse.x, selHouse.y) * (worldM / 2);
     const mk = (conf) => {
-      const m = marginAt(dM, conf.link, prop) + selHouse.u * env.sigma * 0.7;
+      const m = marginAt(dM, conf.link, prop) + selHouse.u * env.sigma;
       return { m, status: m >= target ? "ok" : m >= 0 ? "warn" : "ng" };
     };
     return { dM, a: mk(confA), b: mk(confB) };
@@ -228,6 +289,9 @@ export default function CoverageMap() {
               {QUICK_PAIRS.map((q) => (
                 <button key={q.label} className="chip" onClick={() => { setAntA(q.a); setAntB(q.b); }}>{q.label}</button>
               ))}
+              <span style={{ flex: 1 }} />
+              <button className="chip" onClick={async () => { await copyText(shareUrl()); flash("この比較条件の共有リンクをコピーしました"); }}>🔗 条件を共有</button>
+              <button className="chip" onClick={async () => { await copyText(reportText()); flash("結果レポートをコピーしました"); }}>📋 レポート</button>
             </div>
             <div className="abGrid">
               <div>
@@ -255,6 +319,14 @@ export default function CoverageMap() {
             </div>
           </Card>
 
+          <div className="row" style={{ margin: "0 0 8px", gap: 8 }}>
+            <span className="small" style={{ fontWeight: 800 }}>🗺 町の縮尺（A/B共通・固定）:</span>
+            <button className={`chip ${scaleKey === "auto" ? "chipOn" : ""}`} onClick={() => setScaleKey("auto")}>自動</button>
+            {TOWN_SCALES.map((s) => (
+              <button key={s.key} className={`chip ${scaleKey === s.key ? "chipOn" : ""}`} onClick={() => setScaleKey(s.key)}>{s.label}</button>
+            ))}
+          </div>
+          {scaleHint && <div className="small" style={{ marginBottom: 8, color: C.warn, fontWeight: 700 }}>💡 {scaleHint}</div>}
           <div className="mapsGrid">
             <TownMap title={`A: ${antA === "custom" ? "カスタム" : antStateOf(antA).label}`} sub={band.short} conf={confA} worldM={worldM} sigma={env.sigma} target={target} prop={prop} selected={selected} onSelect={setSelected} reduced={reduced} tone={C.blue} />
             <TownMap title={`B: ${antB === "custom" ? "カスタム" : antStateOf(antB).label}`} sub={band.short} conf={confB} worldM={worldM} sigma={env.sigma} target={target} prop={prop} selected={selected} onSelect={setSelected} reduced={reduced} tone={C.accent} />
@@ -266,7 +338,14 @@ export default function CoverageMap() {
               通信半径 <b>{fmtDistance(confA.rStable)} → {fmtDistance(confB.rStable)}</b>（約{rRatio > 0 ? `${round(rRatio * 100, 0)}%` : "—"}）、
               カバー<b>面積は{aRatio > 0.005 ? `約${round(aRatio * 100, 0)}%` : "ほぼゼロ"}</b>に。
               送信電力に換算すると<b>{powerRatioText(deltaDb)}</b>です。
+              <div style={{ marginTop: 6 }}>
+                💰 <b>事業インパクト:</b> Bの性能で同じ町をカバーするには受信局・中継器がおよそ<b>{Number.isFinite(gwMultiplier) ? `${round(gwMultiplier, 1)}倍` : "計算不能なほど多数"}</b>必要。
+                さらに圏内の家でも再送が増え、通信分の電池消費は平均<b>×{fmt(sumA.drain, 2)} → ×{fmt(sumB.drain, 2)}</b>に悪化します（電池10年要件に直結）。
+              </div>
               {antStateOf(antB).lecture && <div className="small" style={{ marginTop: 6 }}>📖 {antStateOf(antB).lecture}</div>}
+              <div className="small" style={{ marginTop: 6 }}>
+                この「実装による悪化」は設計段階で防げます → <a href={CONTACT_URL} target="_blank" rel="noopener">アンテナ・GND設計の相談（スタッフ株式会社）</a>
+              </div>
             </div>
           )}
           {deltaDb < -0.01 && (
@@ -305,8 +384,9 @@ export default function CoverageMap() {
         <span><span className="swBox" style={{ background: C.ok }} />安定設置可（マージン≧{target}dB）</span>
         <span><span className="swBox" style={{ background: C.warn }} />不安定（0〜{target}dB）</span>
         <span><span className="swBox" style={{ background: C.ng, opacity: 0.6 }} />圏外（マージン&lt;0）</span>
-        <span className="small">伝搬: CIモデル n={env.n}＋シャドウイングσ={env.sigma}dB（家ごとのばらつき）／机上概算であり実際の通信を保証しません</span>
+        <span className="small">伝搬: CIモデル n={env.n}＋シャドウイングσ={env.sigma}dB（家ごとのばらつき）／電池消費は再送込み簡易モデル（余裕20dB時比・通信分のみ）／机上概算であり実際の通信を保証しません</span>
       </div>
+      {toast ? <div style={{ position: "fixed", right: 14, bottom: 14, background: "#102330", color: "#D8E6EE", borderRadius: 12, padding: "10px 14px", fontSize: 12, zIndex: 50 }}>{toast}</div> : null}
     </div>
   );
 }

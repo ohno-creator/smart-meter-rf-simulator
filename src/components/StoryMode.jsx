@@ -1,9 +1,11 @@
 import React, { useMemo, useState } from "react";
-import { C, clamp, fmt, fmtSigned, fmtDistance } from "../theme.js";
-import { marginAt, distanceRatio } from "../engine/rf.js";
+import { C, clamp, fmt, fmtSigned, fmtDistance, CONTACT_URL } from "../theme.js";
+import { marginAt, distanceRatio, pathLoss } from "../engine/rf.js";
 import { bandOf, envOf } from "../data/core.js";
 import { STORY_UTILITIES, STORY_SCENARIOS } from "../data/scenarios.js";
 import { Card, NoviceNote, Term, JudgeBadge, LossBar } from "./common.jsx";
+import { ScenarioIllustration, SCENARIO_ART } from "./illustrations.jsx";
+import { WaterfallChart } from "./charts.jsx";
 
 const CAT_ICON = { antenna: "📡", placement: "📐", cable: "🔌", infrastructure: "🗼", design: "🛠" };
 
@@ -51,6 +53,9 @@ function ScenarioDetail({ utility, sc, onBack }) {
   const level = (m) => (m >= 10 ? "ok" : m >= 0 ? "warn" : "ng");
   const levelLabel = { ok: "安定", warn: "不安定", ng: "通信不可" };
   const distRatio = distanceRatio(totalLoss - effRecovered, env.n);
+  const bestSol = [...sc.solutions].sort((a, b) => b.recoversDbTyp - a.recoversDbTyp)[0];
+  const lvP = level(mProblem);
+  const lvCol = { ok: C.ok, warn: C.warn, ng: C.ng };
 
   return (
     <div>
@@ -63,7 +68,15 @@ function ScenarioDetail({ utility, sc, onBack }) {
         </div>
       </div>
 
+      {/* ひと目でわかるサマリー */}
+      <div className="kpis" style={{ marginBottom: 12 }}>
+        <div className="kpi"><div className="kpik">この課題の想定損失</div><div className="kpiv" style={{ color: totalLoss >= 25 ? C.ng : totalLoss >= 12 ? C.warn : C.ink }}>-{fmt(totalLoss, 0)}<span className="unit">dB</span></div></div>
+        <div className="kpi" style={{ background: lvP === "ok" ? C.okBg : lvP === "warn" ? C.warnBg : C.ngBg }}><div className="kpik">この条件の判定</div><div className="kpiv" style={{ color: lvCol[lvP], fontSize: 17 }}>{levelLabel[lvP]}</div><div className="small">マージン {fmtSigned(mProblem, 1)}dB</div></div>
+        <div className="kpi"><div className="kpik">最も効く対策</div><div className="kpiv" style={{ color: C.ok, fontSize: 15 }}>+{bestSol.recoversDbTyp}dB</div><div className="small">{bestSol.name}</div></div>
+      </div>
+
       <Card title="① 課題を知る">
+        <ScenarioIllustration kind={SCENARIO_ART[sc.id]} />
         <NoviceNote icon="🔰" title="まずはやさしく">{sc.noviceSummary}</NoviceNote>
         <p className="para">{sc.challenge}</p>
         {sc.background && <div className="small" style={{ background: "#F6F9FB", borderRadius: 9, padding: "8px 11px" }}>📍 <b>背景:</b> {sc.background}</div>}
@@ -82,6 +95,19 @@ function ScenarioDetail({ utility, sc, onBack }) {
           ))}
         </div>
         <LossBar items={sc.physics.map((p) => ({ label: p.factor, value: p.dbTyp }))} totalLabel={`合計 -${fmt(totalLoss, 0)}dB`} />
+        <div className="ct" style={{ margin: "14px 0 4px" }}>電波の収支（リンクバジェット）で見る</div>
+        <WaterfallChart
+          txPdBm={band.txP}
+          antNetDb={-2}
+          losses={[
+            { label: `伝搬 ${fmtDistance(dM)}`, db: pathLoss({ model: "CI", fMHz: band.freq, dM, n: env.n, envLoss: 0 }) },
+            { label: env.label, db: env.loss },
+            ...sc.physics.map((p) => ({ label: p.factor.length > 11 ? p.factor.slice(0, 10) + "…" : p.factor, db: p.dbTyp })),
+          ]}
+          rxGdBi={2}
+          sensDbm={band.sens}
+          target={10}
+        />
         <div className="row" style={{ gap: 14, marginTop: 10, alignItems: "center" }}>
           <JudgeBadge level={level(mProblem)} label={`この条件: ${levelLabel[level(mProblem)]}`} />
           <span className="small">理想配置なら<Term k="マージン">マージン</Term> {fmtSigned(mBase, 1)}dB → この課題条件では <b style={{ color: level(mProblem) === "ok" ? C.ok : level(mProblem) === "warn" ? C.warn : C.ng }}>{fmtSigned(mProblem, 1)}dB</b></span>
@@ -120,6 +146,9 @@ function ScenarioDetail({ utility, sc, onBack }) {
 
       <Card title="④ アンテナメーカー（スタッフ社）のサポート">
         <p className="para">{sc.stafSupport}</p>
+        <a className="btn btnP" style={{ textDecoration: "none", display: "inline-block", marginBottom: 8 }} href={CONTACT_URL} target="_blank" rel="noopener">
+          📩 このケースについて相談する →
+        </a>
         {sc.proNote && (
           <details className="proNote">
             <summary>🎓 プロ向け補足を読む</summary>
