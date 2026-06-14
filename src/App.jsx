@@ -32,10 +32,13 @@ export default function App() {
     .shellEyebrow{font-size:11px;letter-spacing:.22em;color:${C.blue};font-weight:700}
     .shellTitle{font-size:22px;font-weight:800;margin:2px 0 0;letter-spacing:.02em}
     .shellSub{font-size:12px;color:${C.sub};margin-top:3px}
-    .tabsNav{display:flex;gap:6px;overflow-x:auto;padding:10px 0 12px;-webkit-overflow-scrolling:touch}
-    .tabBtn{flex:0 0 auto;display:flex;align-items:center;gap:7px;border:1.5px solid ${C.line};background:#fff;border-radius:999px;padding:8px 15px;font-size:13px;font-weight:700;color:${C.ink};cursor:pointer;white-space:nowrap}
-    .tabBtn:hover{border-color:${C.blue}}
-    .tabBtnOn{background:${C.ink};color:#fff;border-color:${C.ink}}
+    .tabsNav{display:flex;gap:6px;overflow-x:auto;padding:10px 2px 12px;-webkit-overflow-scrolling:touch;position:sticky;top:0;z-index:30;background:linear-gradient(${C.paper}f2,${C.paper}e6);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);margin:0 -4px}
+    .tabBtn{flex:0 0 auto;display:flex;align-items:center;gap:7px;border:1.5px solid ${C.line};background:#fff;border-radius:999px;padding:8px 15px;font-size:13px;font-weight:700;color:${C.ink};cursor:pointer;white-space:nowrap;transition:border-color .15s,box-shadow .15s,transform .12s}
+    .tabBtn:hover{border-color:${C.blue};box-shadow:0 2px 8px rgba(43,93,168,.18);transform:translateY(-1px)}
+    .tabBtnOn{background:${C.ink};color:#fff;border-color:${C.ink};box-shadow:0 3px 10px rgba(16,35,48,.25)}
+    @keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+    main>*{animation:fadeUp .32s ease}
+    @media(prefers-reduced-motion:reduce){main>*{animation:none}.tabBtn{transition:none}}
     .shellFooter{margin-top:22px;font-size:11px;color:${C.sub};border-top:1px solid ${C.line};padding-top:10px;line-height:1.7}
 
     .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
@@ -43,7 +46,7 @@ export default function App() {
     .btn:hover{border-color:${C.blue}}
     .btnP{background:${C.ink};color:#fff;border-color:${C.ink}}
     .card{background:#fff;border:1px solid ${C.line};border-radius:13px;padding:14px;box-shadow:0 1px 2px rgba(16,35,48,.05);margin-bottom:14px}
-    .ct{font-size:12px;font-weight:800;letter-spacing:.14em;color:${C.blue};margin-bottom:10px;text-transform:uppercase}
+    .ct{font-size:13px;font-weight:800;letter-spacing:.12em;color:${C.blue};margin-bottom:10px;border-left:3.5px solid ${C.blue};padding-left:9px;line-height:1.3}
     .step{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:800;margin:14px 0 8px}
     .step:first-of-type{margin-top:0}
     .stepNo{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:999px;background:${C.ink};color:#fff;font-size:12px;font-weight:800;flex:0 0 auto}
@@ -128,9 +131,25 @@ export default function App() {
     .utilTabs{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
     .utilTab{display:flex;align-items:center;gap:8px;border:2px solid ${C.line};background:#fff;border-radius:12px;padding:10px 22px;font-size:15px;font-weight:800;color:${C.sub};cursor:pointer}
     .utilTab.on{background:#fff;box-shadow:0 2px 6px rgba(16,35,48,.08)}
-    .scGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:12px}
-    .scCard{display:flex;flex-direction:column;gap:8px;text-align:left;background:#fff;border:1.5px solid ${C.line};border-radius:13px;padding:14px;cursor:pointer;color:${C.ink};font-family:inherit;box-shadow:0 1px 2px rgba(16,35,48,.05)}
-    .scCard:hover{border-color:${C.blue};transform:translateY(-1.5px);transition:all .15s}
+    .scGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+    .scCard{display:flex;flex-direction:column;gap:8px;text-align:left;background:#fff;border:1.5px solid ${C.line};border-radius:13px;padding:12px;cursor:pointer;color:${C.ink};font-family:inherit;box-shadow:0 1px 2px rgba(16,35,48,.05);transition:border-color .15s,transform .15s,box-shadow .15s}
+    .scCard:hover{border-color:${C.blue};transform:translateY(-2px);box-shadow:0 6px 18px rgba(16,35,48,.12)}
+    .scThumb{margin:-12px -12px 2px;border-radius:11px 11px 0 0;overflow:hidden;border-bottom:1px solid ${C.line};pointer-events:none;background:#F4F8FA}
+    .keyFig{display:flex;align-items:baseline;gap:8px;background:#F0F6FB;border:1px solid #C9DCEC;border-radius:10px;padding:8px 12px;margin:6px 0}
+    .keyFigVal{font-size:24px;font-weight:900;color:${C.blue};font-family:ui-monospace,monospace;letter-spacing:-.02em}
+    .keyFigLab{font-size:11.5px;color:${C.sub};font-weight:700}
+    .checkList{margin:8px 0 0;padding:0;list-style:none}
+    .checkList li{position:relative;padding:5px 0 5px 26px;font-size:12.5px;line-height:1.55;border-bottom:1px dashed ${C.grid}}
+    .checkList li:before{content:"✓";position:absolute;left:4px;top:4px;color:${C.ok};font-weight:900}
+    .faqItem{background:#fff;border:1px solid ${C.line};border-radius:11px;padding:3px 14px;margin-bottom:8px}
+    .faqItem summary{cursor:pointer;font-size:13.5px;font-weight:800;padding:9px 0;color:${C.ink};list-style:none;display:flex;gap:9px;align-items:baseline}
+    .faqItem summary:before{content:"Q.";color:${C.blue};font-weight:900;flex:0 0 auto}
+    .faqItem[open] summary{border-bottom:1px dashed ${C.grid}}
+    .faqA{font-size:13px;line-height:1.8;color:#22343F;padding:9px 0 11px 24px;position:relative}
+    .faqA:before{content:"A.";position:absolute;left:0;color:${C.accent};font-weight:900}
+    .researchCard{background:#fff;border:1.5px solid ${C.line};border-radius:13px;box-shadow:0 1px 2px rgba(16,35,48,.05);transition:border-color .15s,transform .15s,box-shadow .15s;align-self:start}
+    .researchCard:hover{border-color:${C.blue};transform:translateY(-2px);box-shadow:0 6px 18px rgba(16,35,48,.12)}
+    .catTag{display:inline-block;font-size:10.5px;font-weight:700;color:${C.cyan};background:#E7F2F6;border-radius:999px;padding:2px 9px;margin-top:4px}
     .scCardHead{display:flex;align-items:center;gap:9px;font-size:14px}
     .scCardFoot{display:flex;justify-content:space-between;align-items:center;margin-top:auto;padding-top:6px;border-top:1px dashed ${C.line};font-size:12px}
     .scHead{display:flex;align-items:center;gap:12px;margin:12px 0}

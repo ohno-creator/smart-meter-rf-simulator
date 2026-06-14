@@ -447,8 +447,16 @@ const ART = {
   battery_eff: BatteryEff,
 };
 
-export function ScenarioIllustration({ kind }) {
+export function ScenarioIllustration({ kind, thumb = false }) {
   const Cmp = ART[kind] || Generic;
+  if (thumb) {
+    // カードのサムネ用: 上部を切り出して横長に見せる
+    return (
+      <div style={{ height: 96, overflow: "hidden", display: "flex", alignItems: "flex-start" }}>
+        <Cmp />
+      </div>
+    );
+  }
   return <Cmp />;
 }
 

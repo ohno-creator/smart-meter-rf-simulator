@@ -19,6 +19,16 @@ export const RESEARCH_TOPICS = [
       "C. Pfeiffer, \"Fundamental Efficiency Limits for Small Metallic Antennas,\" IEEE Trans. Antennas Propag., 2017 (arXiv:1612.07317)",
       "New Bounds on Spherical Antenna Bandwidth and Directivity: Updates to the Chu-Harrington Limits (arXiv:2408.07085, 2024) https://arxiv.org/abs/2408.07085",
       "https://en.wikipedia.org/wiki/Chu%E2%80%93Harrington_limit"
+    ],
+    "cat": "物理の制約",
+    "keyFig": {
+      "value": "ka < 1",
+      "label": "小型筐体は物理限界の領域"
+    },
+    "takeaways": [
+      "小型・広帯域・高効率は同時に満たせない（物理法則）",
+      "基板GND全体を放射体積として使い実効サイズを稼ぐ",
+      "どの帯域・環境に最適化するか割り切る"
     ]
   },
   {
@@ -35,6 +45,16 @@ export const RESEARCH_TOPICS = [
       "R. F. Harrington and J. R. Mautz, \"Theory of Characteristic Modes for Conducting Bodies,\" IEEE Trans. Antennas Propag., vol.19, no.5, 1971",
       "M. Cabedo-Fabrés et al., \"The Theory of Characteristic Modes Revisited,\" IEEE Antennas Propag. Magazine, 2007",
       "http://www.characteristicmodes.org/software/"
+    ],
+    "cat": "基板設計",
+    "keyFig": {
+      "value": "最大5.3dB",
+      "label": "配置だけで変わる総合効率"
+    },
+    "takeaways": [
+      "アンテナは後付けでなく基板設計の初期から検討",
+      "給電位置はGNDの共振モード選択そのもの",
+      "レイアウト確定前のモード解析で手戻りを防ぐ"
     ]
   },
   {
@@ -51,6 +71,16 @@ export const RESEARCH_TOPICS = [
       "Study on Improvement of Radio Propagation Characteristics of Cast Iron Boxes for Water Smart Meters, Sensors, 2023 https://pmc.ncbi.nlm.nih.gov/articles/PMC10748203/",
       "A Wireless Underground Sensor Network Field Pilot for Agriculture and Ecology, Sensors, 2022 https://www.mdpi.com/1424-8220/22/10/3913",
       "Wireless Underground Sensor Networks: A Comprehensive Survey and Tutorial, ACM Computing Surveys, 2024 https://dl.acm.org/doi/10.1145/3625388"
+    ],
+    "cat": "設置環境",
+    "keyFig": {
+      "value": "+10dB超",
+      "label": "蓋のアンテナ化による改善幅"
+    },
+    "takeaways": [
+      "地中は土壌水分量が減衰を支配（降雨で激変）",
+      "蓋・箱の構造自体を放射器として設計し直す",
+      "リンク予算に環境変動マージンを織り込む"
     ]
   },
   {
@@ -67,6 +97,16 @@ export const RESEARCH_TOPICS = [
       "Real-time adaptation of mobile antenna impedance matching, IEEE, 2010 https://ieeexplore.ieee.org/document/5666808",
       "Antenna Tuning Approach Aids Cellular Handsets, Microwaves & RF https://www.mwrf.com/markets/article/21842189/antenna-tuning-approach-aids-cellular-handsets",
       "Embedded digital-capacitor ICs enable antenna tuning, 5G Technology World https://www.5gtechnologyworld.com/embedded-digital-capacitor-ics-enable-antenna-tuning/"
+    ],
+    "cat": "整合・実装",
+    "keyFig": {
+      "value": "-6〜-14dB",
+      "label": "離調による実測の劣化"
+    },
+    "takeaways": [
+      "水没・金属近接・施工ばらつきで必ず離調する",
+      "どの設置条件を定格に整合を合わせるか決める",
+      "実装状態で共振を確認してから量産する"
     ]
   },
   {
@@ -83,6 +123,16 @@ export const RESEARCH_TOPICS = [
       "Test Methodology, SISO, Reverberation Chamber V4.0.0 (CTIA 01.21) https://ctiacertification.org/wp-content/uploads/2021/02/CTIA-01.21-Test-Methodology-SISO-Reverberation-Chamber-V4.0.0.pdf",
       "Test Plan for Wireless Large-Form-Factor Device Over-the-Air Performance V1.2 https://ctiacertification.org/wp-content/uploads/2021/02/CPWG_CTIA-Certification-Test-Plan-for-Wireless-Large-Form-Factor-Device-Over-the-Air-Performance-V1.2.pdf",
       "OTA Measurement for IoT Wireless Device Performance Evaluation https://toyotechus.com/wp-content/uploads/OTA-Measurement-for-IoT-Wireless-Device-Performance-Evaluation-Challenges-and-Solutions.pdf"
+    ],
+    "cat": "評価・測定",
+    "keyFig": {
+      "value": "TRP/TIS",
+      "label": "実装込みの実力値"
+    },
+    "takeaways": [
+      "通信距離を決めるのは単体利得でなくTRP/TIS",
+      "調達仕様は「利得◯dBi」でなく実装状態の性能で",
+      "ケーブル給電のパッシブ測定では劣化が見えない"
     ]
   },
   {
@@ -99,6 +149,16 @@ export const RESEARCH_TOPICS = [
       "A Low-Profile High Gain Circularly Polarized Metasurface Antenna for IoT Applications, Electronics, 2026 https://www.mdpi.com/2079-9292/15/4/822",
       "A High-Gain and Dual-Band Compact Metasurface Antenna for Wi-Fi/WLAN Applications https://pmc.ncbi.nlm.nih.gov/articles/PMC12155658/",
       "Design of a High-Gain Low-Profile Metasurface Antenna Using Direct Feeding of Sievenpiper's HIS (arXiv:2412.02502) https://arxiv.org/abs/2412.02502"
+    ],
+    "cat": "材料・構造",
+    "keyFig": {
+      "value": "90%超",
+      "label": "実証された総合効率(一部)"
+    },
+    "takeaways": [
+      "金属面直上で動かす構造に応用が進む",
+      "920MHz帯は波長が長く大型化しやすい点に注意",
+      "効果は実装条件依存——筐体込み実測で検証"
     ]
   },
   {
@@ -115,6 +175,16 @@ export const RESEARCH_TOPICS = [
       "Antenna optimization using machine learning with reduced-dimensionality surrogates, Scientific Reports, 2024 https://www.nature.com/articles/s41598-024-72478-w",
       "Inverse Design of Microstrip Antennas Based on Deep Learning, Electronics, 2025 https://www.mdpi.com/2079-9292/14/13/2510",
       "IEEE TAP Special Issue on Machine Learning in Antenna Design, Modeling, and Measurements https://ieeeaps.org/ieee-tap/for-readers/special-issues/special-issue-on-machine-learning-in-antenna-design-modeling-and-measurements"
+    ],
+    "cat": "設計手法",
+    "keyFig": {
+      "value": "約40%減",
+      "label": "計算コスト削減の例"
+    },
+    "takeaways": [
+      "探索は速くなるが学習対象はシミュレーション空間",
+      "最終判断は実装状態の実測で行う原則は不変",
+      "実測データを設計へ還流する体制が価値を生む"
     ]
   },
   {
@@ -131,6 +201,16 @@ export const RESEARCH_TOPICS = [
       "920MHz帯を利用する異種無線通信規格間の干渉の影響調査〜Wi-SUNとLoRaWAN間の相互干渉〜, 信学技報, 2018 https://www.ieice.org/ken/paper/20180302i1Di/",
       "標準規格 STD-T108（920MHz帯テレメータ用等特定小電力無線局）1.4版 https://www.arib.or.jp/image/kikaku/kikaku_sample/sample-std-t108-1.4.pdf",
       "920MHz vs 2.4GHz無線LAN：IoTシステムに最適な無線の選び方（OKI） https://www.oki.com/jp/dx/doc/2016/16vol_03.html"
+    ],
+    "cat": "電波環境",
+    "keyFig": {
+      "value": "数千万台",
+      "label": "同居するWi-SUN機器規模"
+    },
+    "takeaways": [
+      "「届くか」だけでなく「送信機会を得られるか」",
+      "効率の数dBが再送・電池・収集成功率に跳ね返る",
+      "実装最適化は共有資源（電波）への負荷低減でもある"
     ]
   }
 ];

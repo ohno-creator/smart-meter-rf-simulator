@@ -193,6 +193,7 @@ export default function StoryMode() {
               const total = s.physics.reduce((sum, p) => sum + p.dbTyp, 0);
               return (
                 <button key={s.id} className="scCard" onClick={() => setScId(s.id)}>
+                  <div className="scThumb"><ScenarioIllustration kind={SCENARIO_ART[s.id]} thumb /></div>
                   <div className="scCardHead">
                     <span className="scIcon">{s.icon}</span>
                     <b>{s.title}</b>
