@@ -53,6 +53,24 @@ export const BANDS = [
     use: "水道スマートメーター実証",
     note: "超狭帯域で感度が深い。それでも鉄蓋ピット水没では届かないことがある。",
   },
+  {
+    key: "local5g",
+    label: "ローカル5G（4.7GHz帯 RU仕様）",
+    short: "ローカル5G",
+    freq: 4750, txP: 23, sens: -100,
+    use: "自営無線網・スマートメーター/IoTのバックホール（端末→RU）",
+    note: "4.6〜4.9GHz・100MHz幅・TDD。波長約6.3cmと短く、金属近接・人体・実装損失の影響が920MHz帯より一段と大きく出る帯域。",
+    spec: {
+      title: "RU 仕様",
+      lines: [
+        "4.6–4.9GHz / 100MHz幅 / TDD",
+        "同時接続数 512UE",
+      ],
+      dl: { label: "DL（4×4MIMO・256QAM）", sync: "最大1,488Mbps", semisync: "最大988Mbps" },
+      ul: { label: "UL（2×2MIMO・256QAM）", sync: "最大230Mbps", semisync: "最大466Mbps" },
+      note: "スループットはあくまでメーカー理論値。リンク判定は端末→RUのアップリンクを想定。",
+    },
+  },
 ];
 export const bandOf = (key) => BANDS.find((b) => b.key === key) || BANDS[0];
 

@@ -72,6 +72,7 @@ const BANDS = [
   { key: "n78", group: "5G NR", label: "5G n78（3.4–3.7GHz）", freq: 3500, txP: 23, sens: -98 },
   { key: "n77", group: "5G NR", label: "5G n77（3.7–4.1GHz）", freq: 3900, txP: 23, sens: -98 },
   { key: "n79", group: "5G NR", label: "5G n79（4.5GHz）", freq: 4500, txP: 23, sens: -97 },
+  { key: "local5g", group: "5G NR", label: "ローカル5G（4.7GHz帯 100MHz/TDD・RU仕様）", freq: 4750, txP: 23, sens: -100 },
   { key: "n257", group: "5G NR", label: "5G n257（28GHz ミリ波）", freq: 28000, txP: 23, sens: -88 },
 ];
 const BAND_GROUPS = ["省電力WAN", "セルラーIoT", "LTE", "5G NR"];

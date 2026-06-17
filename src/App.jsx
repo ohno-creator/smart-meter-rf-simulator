@@ -150,6 +150,16 @@ export default function App() {
     .researchCard{background:#fff;border:1.5px solid ${C.line};border-radius:13px;box-shadow:0 1px 2px rgba(16,35,48,.05);transition:border-color .15s,transform .15s,box-shadow .15s;align-self:start}
     .researchCard:hover{border-color:${C.blue};transform:translateY(-2px);box-shadow:0 6px 18px rgba(16,35,48,.12)}
     .catTag{display:inline-block;font-size:10.5px;font-weight:700;color:${C.cyan};background:#E7F2F6;border-radius:999px;padding:2px 9px;margin-top:4px}
+    .specCard{border:1.5px solid #9FC0DB;background:linear-gradient(180deg,#F2F8FC,#E8F1F8);border-radius:11px;padding:10px 12px;margin-top:8px}
+    .specHead{display:inline-block;font-size:12px;font-weight:800;color:#fff;background:${C.blue};border-radius:6px;padding:2px 12px;margin-bottom:7px;letter-spacing:.05em}
+    .specLine{font-size:13px;font-weight:700;color:${C.ink};line-height:1.7}
+    .specRate{margin-top:6px}
+    .specRateLab{font-size:12px;font-weight:800;color:${C.ink};display:flex;align-items:center;gap:6px}
+    .specRateLab:before{content:"●";color:${C.blue};font-size:10px}
+    .specRateVals{display:flex;gap:8px;flex-wrap:wrap;margin:2px 0 0 16px;font-size:12px;font-family:ui-monospace,monospace}
+    .specRateVals span{background:#fff;border:1px solid ${C.line};border-radius:6px;padding:2px 8px}
+    .specRateVals b{color:${C.sub};font-weight:700;margin-right:3px}
+    .specNote{font-size:10.5px;color:${C.sub};margin-top:7px;line-height:1.5}
     .scCardHead{display:flex;align-items:center;gap:9px;font-size:14px}
     .scCardFoot{display:flex;justify-content:space-between;align-items:center;margin-top:auto;padding-top:6px;border-top:1px dashed ${C.line};font-size:12px}
     .scHead{display:flex;align-items:center;gap:12px;margin:12px 0}

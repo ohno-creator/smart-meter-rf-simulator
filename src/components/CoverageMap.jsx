@@ -2,7 +2,7 @@ import React, { useMemo, useState } from "react";
 import { C, clamp, fmt, fmtSigned, fmtDistance, fmtArea, mulberry32, powerRatioText, round, CONTACT_URL, buildShareUrl, copyText, readUrlParams } from "../theme.js";
 import { marginAt, radiusFor, batteryDrainFactor } from "../engine/rf.js";
 import { BANDS, ENVS, SITES, ANT_STATES, bandOf, envOf, siteOf, antStateOf } from "../data/core.js";
-import { Card, PickGrid, NoviceNote, Term, useReducedMotion } from "./common.jsx";
+import { Card, PickGrid, NoviceNote, Term, SpecCard, useReducedMotion } from "./common.jsx";
 
 /** ===== 町の生成（決定論的） ===== */
 const HOUSE_COUNT = 180;
@@ -197,13 +197,14 @@ export default function CoverageMap() {
     { key: "5000", m: 5000, label: "5km四方" },
     { key: "12000", m: 12000, label: "12km四方" },
   ];
-  const ENV_DEFAULT_SCALE = { los: "5000", suburb: "1200", urban: "1200", dense: "600" };
+  const rMax = Math.max(confA.rStable, confB.rStable);
+  // 自動縮尺: A/Bの大きい方の安定半径が地図の約2/5に収まる、いちばん近い既定の縮尺（A/B共通）
+  const autoScale = TOWN_SCALES.find((s) => s.m >= rMax * 2.4) || TOWN_SCALES[TOWN_SCALES.length - 1];
   const [scaleKey, setScaleKey] = useState(() => initFromUrl("scale", "auto", (v) => v === "auto" || TOWN_SCALES.some((s) => s.key === v)));
   const worldM = scaleKey === "auto"
-    ? (TOWN_SCALES.find((s) => s.key === ENV_DEFAULT_SCALE[envKey]) || TOWN_SCALES[2]).m
+    ? autoScale.m
     : (TOWN_SCALES.find((s) => s.key === scaleKey) || TOWN_SCALES[2]).m;
   // 縮尺ガイダンス: 両構成とも全滅/全カバーなら縮尺変更を促す
-  const rMax = Math.max(confA.rStable, confB.rStable);
   const scaleHint =
     rMax < worldM * 0.04 ? "両構成とも圏外がほとんどです。縮尺を小さく（拡大）すると差が見えます" :
     Math.min(confA.rStable, confB.rStable) > worldM * 0.75 ? "両構成とも町全体をカバーしています。縮尺を大きく（広域）にすると差が見えます" : "";
@@ -265,6 +266,12 @@ export default function CoverageMap() {
             {BANDS.map((b) => <option key={b.key} value={b.key}>{b.label}</option>)}
           </select>
           <div className="small">{band.use}／送信 {band.txP}dBm・<Term k="受信感度">感度</Term> {band.sens}dBm</div>
+          {band.spec && <SpecCard spec={band.spec} />}
+          {band.key === "local5g" && (
+            <div className="small" style={{ color: C.warn, marginTop: 4 }}>
+              ⚠ 4.7GHz帯は波長が短く、920MHz帯より自由空間損失が約14dB大きい上、金属近接・実装損失の影響も拡大します。アンテナの作り込みが通信エリアをより強く左右します。
+            </div>
+          )}
 
           <div className="step"><span className="stepNo">2</span>周辺環境</div>
           <PickGrid options={ENVS} value={envKey} onChange={setEnvKey} cols={2} />

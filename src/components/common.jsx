@@ -119,6 +119,27 @@ export function useReducedMotion() {
   return reduced;
 }
 
+/** 通信方式の詳細スペックカード（ローカル5G RU仕様など） */
+export function SpecCard({ spec }) {
+  if (!spec) return null;
+  return (
+    <div className="specCard">
+      <div className="specHead">{spec.title}</div>
+      {spec.lines?.map((l) => <div key={l} className="specLine">{l}</div>)}
+      {[spec.dl, spec.ul].filter(Boolean).map((d) => (
+        <div key={d.label} className="specRate">
+          <div className="specRateLab">{d.label}</div>
+          <div className="specRateVals">
+            <span><b>同期</b> {d.sync}</span>
+            <span><b>準同期</b> {d.semisync}</span>
+          </div>
+        </div>
+      ))}
+      {spec.note ? <div className="specNote">※ {spec.note}</div> : null}
+    </div>
+  );
+}
+
 /** 損失の内訳バー */
 export function LossBar({ items, totalLabel }) {
   const total = items.reduce((s, x) => s + Math.max(0, x.value), 0);
